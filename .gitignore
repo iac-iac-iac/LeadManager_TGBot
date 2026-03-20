@@ -1,0 +1,155 @@
+# ====================
+# Python
+# ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ====================
+# Virtual environments
+# ====================
+venv/
+env/
+ENV/
+.venv
+.virtualenv/
+
+# ====================
+# Environment variables
+# ====================
+.env
+.env.local
+.env.*.local
+
+# ====================
+# Database (SQLite)
+# ====================
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+database.db
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+
+# ====================
+# Logs
+# ====================
+logs/
+*.log
+log/
+
+# ====================
+# IDE - PyCharm
+# ====================
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# ====================
+# IDE - VS Code
+# ====================
+.vscode/
+*.code-workspace
+
+# ====================
+# IDE - Other
+# ====================
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ====================
+# OS
+# ====================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ====================
+# Uploads (CSV files)
+# ====================
+uploads/*.csv
+uploads/*.xlsx
+uploads/*.xls
+
+# ====================
+# Database backups
+# ====================
+*.backup
+*.bak
+data/*.backup
+data/*.bak
+backups/
+
+# ====================
+# Tests
+# ====================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+*.pyc
+.coverage.*
+
+# ====================
+# Docker
+# ====================
+docker-compose.override.yml
+.docker/
+
+# ====================
+# Temporary files
+# ====================
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+
+# ====================
+# Migration scripts (one-time use)
+# ====================
+apply_migration_v7.py
+db_audit.py
+fix_migration_v7_record.py
+
+# ====================
+# Documentation (temporary/audit)
+# ====================
+docs/AUDIT_REPORT_*.md
+docs/AUDIT_SUMMARY.md
+docs/BUGFIX_*.md
+docs/CLEANUP_*.md
+docs/*_SUMMARY.md
+docs/REFACTORING_*.md
+
+# ====================
+# HTML coverage reports
+# ====================
+htmlcov/

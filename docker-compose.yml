@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lead_telegram_bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - BITRIX24_WEBHOOK_URL=${BITRIX24_WEBHOOK_URL}
+      - DATABASE_PATH=/app/data/leads.db
+      - UPLOADS_FOLDER=/app/uploads
+      - ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FILE=/app/logs/bot.log
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    networks:
+      - lead_network
+    depends_on: []
+
+networks:
+  lead_network:
+    driver: bridge

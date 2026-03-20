@@ -1,0 +1,54 @@
+# Telegram Bot Configuration
+telegram:
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  proxy_url: "${TELEGRAM_PROXY_URL:}"
+  proxy_type: "${TELEGRAM_PROXY_TYPE:HTTP}"
+  request_timeout: 60
+  retry_attempts: 5
+  retry_delay: 5
+
+# Bitrix24 Configuration
+bitrix24:
+  webhook_url: "${BITRIX24_WEBHOOK_URL}"
+  proxy_url: "${BITRIX24_PROXY_URL:}"
+  request_timeout: 30
+  retry_attempts: 3
+  retry_delay: 5
+  duplicate_check_fields:
+    - phone
+    - company_name
+    - address
+
+# Database Configuration
+database:
+  path: "${DATABASE_PATH}"
+  echo: false
+
+# Uploads Configuration
+uploads:
+  folder: "${UPLOADS_FOLDER}"
+  allowed_extensions:
+    - csv
+  encoding: utf-8
+  delimiter: ";"
+
+# Admin Configuration
+admin:
+  telegram_ids: "${ADMIN_TELEGRAM_IDS}"
+
+# Logging Configuration
+logging:
+  level: "${LOG_LEVEL}"
+  file: "${LOG_FILE}"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Cleanup Configuration
+cleanup:
+  logs_days: 30
+  duplicate_leads_days: 90
+  imported_leads_days: 180
+
+# Lead Configuration
+leads:
+  max_per_request: 200
+  fifo_order: true
