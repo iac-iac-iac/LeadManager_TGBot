@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".banner.png" alt="Lead Manager TGBot" width="100%">
+  <img src="./banner.png" alt="Lead Manager TGBot" width="100%">
 </p>
 
 # Telegram-бот для раздачи холодных лидов с интеграцией в Bitrix24
