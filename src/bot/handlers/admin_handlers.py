@@ -60,7 +60,7 @@ router = Router()
 async def handle_duplicate_check_menu(callback: CallbackQuery):
     """Меню проверки дублей"""
     await callback.message.answer(
-        DUPLICATE_CHECK_MENU.format(status=DUPLICATE_CHECK_AUTO_ON),
+        DUPLICATE_CHECK_MENU,
         reply_markup=create_duplicate_check_keyboard()
     )
     await callback.answer()
@@ -72,7 +72,8 @@ async def handle_duplicate_run(callback: CallbackQuery, session: AsyncSession, b
     # СРАЗУ отвечаем на callback чтобы не истёк таймаут
     await callback.answer("⏳ Запуск проверки на дубли...")
 
-    await callback.message.answer(DUPLICATE_CHECK_RUNNING)
+    # Отправляем сообщение о запуске и запоминаем его ID
+    status_message = await callback.message.answer(DUPLICATE_CHECK_RUNNING)
 
     # Получаем все NEW лиды
     result = await session.execute(
@@ -81,7 +82,7 @@ async def handle_duplicate_run(callback: CallbackQuery, session: AsyncSession, b
     new_lead_ids = [row[0] for row in result.all()]
 
     if not new_lead_ids:
-        await callback.message.answer("ℹ️ Нет новых лидов для проверки.")
+        await status_message.edit_text("ℹ️ Нет новых лидов для проверки.")
         return
 
     # Запускаем проверку с уведомлениями в Telegram
@@ -95,7 +96,13 @@ async def handle_duplicate_run(callback: CallbackQuery, session: AsyncSession, b
 
     await session.commit()
 
-    # Показываем результат (если уведомления уже были отправлены, это дублирующее сообщение)
+    # Удаляем сообщение о запуске (если ещё не удалено)
+    try:
+        await status_message.delete()
+    except Exception:
+        pass
+
+    # Показываем результат
     await callback.message.answer(
         DUPLICATE_CHECK_RESULT.format(
             duplicates=stats.get('duplicates', 0),

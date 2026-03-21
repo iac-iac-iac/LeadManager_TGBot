@@ -746,21 +746,24 @@ async def run_duplicate_check(
             logger.info(f"📦 Лиды разбиты на части по 500 шт. (всего: {len(lead_ids)})")
             
             # Отправляем уведомление о начале
+            start_message_id = None
             if bot and admin_chat_id:
                 try:
                     total_parts = (len(lead_ids) + 499) // 500
-                    await bot.send_message(
+                    msg = await bot.send_message(
                         chat_id=admin_chat_id,
                         text=f"🔍 <b>Начата проверка на дубли</b>\n\n"
                              f"📊 Всего лидов: {len(lead_ids)}\n"
                              f"📦 Частей: {total_parts} (по 500 шт.)\n\n"
                              f"⏳ Это займёт несколько минут..."
                     )
+                    start_message_id = msg.message_id
                 except Exception as e:
                     logger.error(f"Не удалось отправить уведомление: {e}")
             
             total_stats = {"duplicates": 0, "unique": 0, "errors": 0}
             part_size = 500
+            last_notification_message_id = None
             
             for i in range(0, len(lead_ids), part_size):
                 part = lead_ids[i:i + part_size]
@@ -772,12 +775,20 @@ async def run_duplicate_check(
                 # Отправляем уведомление о начале части (не чаще чем раз в 500 лидов)
                 if bot and admin_chat_id and part_num % 1 == 0:  # Каждую часть
                     try:
-                        await bot.send_message(
+                        # Удаляем предыдущее уведомление о части
+                        if last_notification_message_id:
+                            try:
+                                await bot.delete_message(chat_id=admin_chat_id, message_id=last_notification_message_id)
+                            except Exception:
+                                pass
+                        
+                        msg = await bot.send_message(
                             chat_id=admin_chat_id,
                             text=f"🔄 <b>Часть {part_num}/{total_parts}</b>\n\n"
                                  f"Лиды: {i+1}-{min(i+part_size, len(lead_ids))}\n"
                                  f"Прогресс: {i*100//len(lead_ids)}%"
                         )
+                        last_notification_message_id = msg.message_id
                     except Exception as e:
                         logger.error(f"Не удалось отправить уведомление: {e}")
                 
@@ -804,6 +815,13 @@ async def run_duplicate_check(
                 if i + part_size < len(lead_ids):
                     logger.info(f"⏳ Пауза 10 сек перед следующей частью...")
                     await asyncio.sleep(10)
+            
+            # Удаляем уведомление о начале
+            if bot and admin_chat_id and start_message_id:
+                try:
+                    await bot.delete_message(chat_id=admin_chat_id, message_id=start_message_id)
+                except Exception:
+                    pass
             
             # Финальное уведомление
             if bot and admin_chat_id:

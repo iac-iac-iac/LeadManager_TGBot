@@ -181,7 +181,7 @@ IMPORT_CSV_SUCCESS = """
 
 Файл: {filename}
 
-Запущена автоматическая проверка на дубли...
+Проводится дедупликация БД...
 """
 
 IMPORT_CSV_ERROR = """
@@ -194,13 +194,11 @@ IMPORT_CSV_ERROR = """
 DUPLICATE_CHECK_MENU = """
 🔍 Проверка дублей
 
-✅ Автоматическая проверка: {status}
-
 Действия:
 """
 
-DUPLICATE_CHECK_AUTO_ON = "ВКЛЮЧЕНА"
-DUPLICATE_CHECK_AUTO_OFF = "ВЫКЛЮЧЕНА"
+DUPLICATE_CHECK_AUTO_ON = "ВКЛЮЧЕНА"  # Не используется (автоматическая проверка отключена)
+DUPLICATE_CHECK_AUTO_OFF = "ВЫКЛЮЧЕНА"  # Не используется
 
 DUPLICATE_CHECK_RUN = "🔄 Запустить повторную проверку всех NEW лидов"
 
