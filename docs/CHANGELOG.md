@@ -129,6 +129,25 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 
 **Результат:** FK constraints работают, WAL mode включён
 
+#### Исправление миграции v7
+
+**Проблема:** Миграция v7 применялась, но не записывала версию в `schema_migrations`
+
+**Файл:** `src/database/migrations.py`
+
+**Исправление:**
+```python
+elif version == 7:
+    await migration_v7_add_critical_indexes(conn)
+    # Записываем версию в таблицу миграций
+    await conn.execute(
+        text("INSERT INTO schema_migrations (version) VALUES (:version)"),
+        {"version": 7}
+    )
+```
+
+**Результат:** Миграция v7 применяется корректно, версия записывается
+
 **Валидация Bitrix24 Webhook URL**
 
 **Файл:** `src/bitrix24/client.py`

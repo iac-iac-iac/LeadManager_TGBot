@@ -33,6 +33,14 @@ ENV/
 .virtualenv/
 
 # ====================
+# AI Assistant
+# ====================
+.ai-credentials/
+*.ai
+.ai/
+setup-github-global.ps1
+
+# ====================
 # Environment variables
 # ====================
 .env

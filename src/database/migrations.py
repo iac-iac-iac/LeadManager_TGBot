@@ -73,6 +73,11 @@ async def run_migrations(db_manager: DatabaseManager):
                     await migration_v6_create_bot_status_table(conn)
                 elif version == 7:
                     await migration_v7_add_critical_indexes(conn)
+                    # Записываем версию в таблицу миграций
+                    await conn.execute(
+                        text("INSERT INTO schema_migrations (version) VALUES (:version)"),
+                        {"version": 7}
+                    )
 
 
 async def apply_migration(conn, version: int):
