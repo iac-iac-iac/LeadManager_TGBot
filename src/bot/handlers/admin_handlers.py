@@ -84,15 +84,18 @@ async def handle_duplicate_run(callback: CallbackQuery, session: AsyncSession, b
         await callback.message.answer("ℹ️ Нет новых лидов для проверки.")
         return
 
-    # Запускаем проверку
+    # Запускаем проверку с уведомлениями в Telegram
     stats = await run_duplicate_check(
         session,
         bitrix24_client,
-        lead_ids=new_lead_ids
+        lead_ids=new_lead_ids,
+        bot=callback.bot,
+        admin_chat_id=str(callback.from_user.id)  # Отправляем тому кто запустил
     )
 
     await session.commit()
 
+    # Показываем результат (если уведомления уже были отправлены, это дублирующее сообщение)
     await callback.message.answer(
         DUPLICATE_CHECK_RESULT.format(
             duplicates=stats.get('duplicates', 0),

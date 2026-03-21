@@ -717,7 +717,9 @@ async def run_duplicate_check(
     bitrix24_client: Bitrix24Client,
     lead_ids: Optional[List[int]] = None,
     check_all_new: bool = False,
-    limit: Optional[int] = None
+    limit: Optional[int] = None,
+    bot = None,  # Bot для отправки уведомлений
+    admin_chat_id: Optional[str] = None  # Chat ID админа для уведомлений
 ) -> Dict[str, int]:
     """
     Запуск проверки на дубли
@@ -728,6 +730,8 @@ async def run_duplicate_check(
         lead_ids: Список ID лидов для проверки
         check_all_new: Проверить все новые лиды
         limit: Лимит лидов
+        bot: Bot для отправки уведомлений (опционально)
+        admin_chat_id: Chat ID админа для уведомлений (опционально)
 
     Returns:
         Статистика проверки
@@ -741,6 +745,20 @@ async def run_duplicate_check(
         if len(lead_ids) > 1000:
             logger.info(f"📦 Лиды разбиты на части по 500 шт. (всего: {len(lead_ids)})")
             
+            # Отправляем уведомление о начале
+            if bot and admin_chat_id:
+                try:
+                    total_parts = (len(lead_ids) + 499) // 500
+                    await bot.send_message(
+                        chat_id=admin_chat_id,
+                        text=f"🔍 <b>Начата проверка на дубли</b>\n\n"
+                             f"📊 Всего лидов: {len(lead_ids)}\n"
+                             f"📦 Частей: {total_parts} (по 500 шт.)\n\n"
+                             f"⏳ Это займёт несколько минут..."
+                    )
+                except Exception as e:
+                    logger.error(f"Не удалось отправить уведомление: {e}")
+            
             total_stats = {"duplicates": 0, "unique": 0, "errors": 0}
             part_size = 500
             
@@ -750,6 +768,18 @@ async def run_duplicate_check(
                 total_parts = (len(lead_ids) + part_size - 1) // part_size
                 
                 logger.info(f"🔄 Обработка части {part_num}/{total_parts} (лиды {i+1}-{min(i+part_size, len(lead_ids))})")
+                
+                # Отправляем уведомление о начале части (не чаще чем раз в 500 лидов)
+                if bot and admin_chat_id and part_num % 1 == 0:  # Каждую часть
+                    try:
+                        await bot.send_message(
+                            chat_id=admin_chat_id,
+                            text=f"🔄 <b>Часть {part_num}/{total_parts}</b>\n\n"
+                                 f"Лиды: {i+1}-{min(i+part_size, len(lead_ids))}\n"
+                                 f"Прогресс: {i*100//len(lead_ids)}%"
+                        )
+                    except Exception as e:
+                        logger.error(f"Не удалось отправить уведомление: {e}")
                 
                 # Обработка части с батчами по 100 лидов
                 batch_size = 100
@@ -774,6 +804,21 @@ async def run_duplicate_check(
                 if i + part_size < len(lead_ids):
                     logger.info(f"⏳ Пауза 10 сек перед следующей частью...")
                     await asyncio.sleep(10)
+            
+            # Финальное уведомление
+            if bot and admin_chat_id:
+                try:
+                    await bot.send_message(
+                        chat_id=admin_chat_id,
+                        text=f"✅ <b>Проверка завершена!</b>\n\n"
+                             f"📊 <b>Результаты:</b>\n"
+                             f"🔴 Дубли: {total_stats['duplicates']}\n"
+                             f"🟢 Уникальные: {total_stats['unique']}\n"
+                             f"⚠️ Ошибки: {total_stats['errors']}\n\n"
+                             f"Всего: {len(lead_ids)} лидов"
+                    )
+                except Exception as e:
+                    logger.error(f"Не удалось отправить уведомление: {e}")
             
             logger.info(f"✅ Все части обработаны: {total_stats}")
             return total_stats
