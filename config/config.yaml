@@ -11,7 +11,7 @@ telegram:
 bitrix24:
   webhook_url: "${BITRIX24_WEBHOOK_URL}"
   proxy_url: "${BITRIX24_PROXY_URL:}"
-  request_timeout: 30
+  request_timeout: 60  # Увеличено с 30 до 60 сек для медленных запросов
   retry_attempts: 3
   retry_delay: 5
   duplicate_check_fields:

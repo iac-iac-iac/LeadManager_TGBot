@@ -135,8 +135,8 @@ class DuplicateChecker:
         session: AsyncSession,
         lead_ids: List[int],
         batch_size: int = 10,
-        max_parallel: int = 5,
-        rate_limit_delay: float = 0.2
+        max_parallel: int = 3,  # Уменьшено с 5 до 3 для снижения нагрузки
+        rate_limit_delay: float = 0.5  # Увеличено с 0.2 до 0.5 сек
     ) -> Dict[str, int]:
         """
         Пакетная проверка лидов на дубли с параллельной обработкой
@@ -194,7 +194,13 @@ class DuplicateChecker:
                 stats["errors"] += 1
             else:
                 lead_id, result_type = result
-                stats[result_type] += 1
+                # Маппинг result_type в ключи статистики
+                if result_type == "duplicates":
+                    stats["duplicates"] += 1
+                elif result_type == "unique":
+                    stats["unique"] += 1
+                else:
+                    stats["errors"] += 1
 
         logger.info(f"Проверка завершена: {stats}")
         return stats

@@ -148,6 +148,28 @@ elif version == 7:
 
 **Результат:** Миграция v7 применяется корректно, версия записывается
 
+#### Rate limiting Bitrix24 API
+
+**Проблемы:**
+1. `KeyError: 'error'` — неправильное имя ключа в статистике
+2. `Too many requests` — Bitrix24 API rate limiting
+3. `Query too old` — callback.answer() вызван слишком поздно
+
+**Файлы:**
+- `src/bitrix24/duplicates.py` — исправлена статистика и задержки
+- `config/config.yaml` — увеличен таймаут
+
+**Исправления:**
+- `stats[result_type]` → явный маппинг (`duplicates`, `unique`, `errors`)
+- `max_parallel`: 5 → **3** (снижение нагрузки на API)
+- `rate_limit_delay`: 0.2 → **0.5 сек** (увеличение задержки)
+- `request_timeout`: 30 → **60 сек** (для медленных запросов)
+
+**Результат:**
+- ✅ KeyError больше не возникает
+- ✅ Too many requests реже (3 параллельных запроса вместо 5)
+- ✅ Успешная проверка дублей без таймаутов
+
 **Валидация Bitrix24 Webhook URL**
 
 **Файл:** `src/bitrix24/client.py`
