@@ -416,6 +416,9 @@ async def confirm_load(callback: CallbackQuery, state: FSMContext, session: Asyn
 @router.callback_query(F.data == "load_bitrix_confirm")
 async def confirm_bitrix_load_direct(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Прямой вызов подтверждения загрузки на Bitrix24 ID"""
+    # СРАЗУ отвечаем на callback чтобы не истёк таймаут
+    await callback.answer("⏳ Загрузка лидов в Bitrix24...")
+    
     await process_bitrix_load(callback, state, session, None)
 
 
@@ -677,7 +680,7 @@ async def handle_bitrix_id_input(message: Message, state: FSMContext, session: A
 
         # Сохраняем сегменты
         await state.update_data(segments_list=segments)
-        await state.update_data(back_callback="admin_load_leads_bitrix")
+        await state.update_data(back_callback="load_leads_segment_select")
 
         # Показываем сегменты с отдельным префиксом для Bitrix24 ID
         keyboard = create_segments_load_keyboard(
@@ -685,7 +688,7 @@ async def handle_bitrix_id_input(message: Message, state: FSMContext, session: A
             page=0, 
             page_size=10, 
             prefix="load_bitrix_segment",
-            back_callback="admin_load_leads_bitrix"
+            back_callback="load_leads_segment_select"
         )
         
         await message.answer(
@@ -1032,13 +1035,13 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
         config = get_config()
         bitrix_client = get_bitrix24_client(config.bitrix24.webhook_url)
         
-        # Импортируем каждый лид
+        # Импортируем каждый лид с задержками
         imported_count = 0
-        for lead in leads:
+        for i, lead in enumerate(leads, 1):
             try:
                 # Формируем название
                 title = f"{lead.segment} - {lead.company_name or 'Без названия'}"
-                
+
                 # Маппинг типов услуг
                 SERVICE_TYPE_MAP = {
                     "ГЦК": 101,
@@ -1049,7 +1052,7 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
                     "Рекрутинг": 106,
                 }
                 service_type_id = SERVICE_TYPE_MAP.get(lead.service_type, 101)
-                
+
                 await bitrix_client.add_lead(
                     title=title,
                     company_title=lead.company_name,
@@ -1067,6 +1070,13 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
                 )
                 imported_count += 1
                 
+                # Задержка между импортами для снижения нагрузки на API
+                if i % 10 == 0:  # Каждые 10 лидов
+                    logger.info(f"⏳ Пауза 3 сек после {i} лидов...")
+                    await asyncio.sleep(3)
+                else:
+                    await asyncio.sleep(0.5)  # Небольшая задержка между каждым лидом
+                
                 # Обновляем статус лида
                 lead.status = LeadStatus.IMPORTED
                 lead.imported_at = datetime.now(timezone.utc)
@@ -1075,31 +1085,60 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
                 logger.error(f"Ошибка импорта лида {lead.id} в Bitrix24: {e}")
         
         await session.commit()
-        
-        # Показываем успех
-        await target.answer(
-            ADMIN_LOAD_LEADS_BITRIX_SUCCESS.format(
-                bitrix_id=bitrix_id,
-                count=imported_count,
-                segment=segment
-            ),
-            reply_markup=create_back_keyboard("admin_menu")
-        )
-        
+
+        # Показываем успех (с обработкой ошибок callback)
+        try:
+            await target.answer(
+                ADMIN_LOAD_LEADS_BITRIX_SUCCESS.format(
+                    bitrix_id=bitrix_id,
+                    count=imported_count,
+                    segment=segment
+                ),
+                reply_markup=create_back_keyboard("admin_menu")
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить уведомление: {type(e).__name__}: {e}")
+            # Пробуем отправить новым сообщением если callback истёк
+            try:
+                await target.bot.send_message(
+                    chat_id=target.from_user.id,
+                    text=ADMIN_LOAD_LEADS_BITRIX_SUCCESS.format(
+                        bitrix_id=bitrix_id,
+                        count=imported_count,
+                        segment=segment
+                    ),
+                    reply_markup=create_back_keyboard("admin_menu")
+                )
+            except Exception:
+                pass
+
         # Логируем
         logger.info(
             f"Админ {target.from_user.id} загрузил {imported_count} лидов на Bitrix24 ID {bitrix_id} "
             f"(сегмент: {segment}, город: {city or 'Все'})"
         )
-        
+
         # Очищаем состояние
         await state.clear()
-        
+
     except Exception as e:
         await session.rollback()
         logger.error(f"Ошибка загрузки на Bitrix24 ID: {type(e).__name__}: {e}")
-        await target.answer(
-            ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
-            reply_markup=create_back_keyboard("admin_menu")
-        )
+        
+        # Пробуем отправить ошибку
+        try:
+            await target.answer(
+                ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
+                reply_markup=create_back_keyboard("admin_menu")
+            )
+        except Exception:
+            try:
+                await target.bot.send_message(
+                    chat_id=target.from_user.id,
+                    text=ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
+                    reply_markup=create_back_keyboard("admin_menu")
+                )
+            except Exception:
+                pass
+        
         await state.clear()
