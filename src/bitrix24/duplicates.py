@@ -311,33 +311,34 @@ class DuplicateChecker:
         session: AsyncSession
     ) -> Tuple[bool, Optional[str], Optional[int]]:
         """
-        Проверка лида на дубли по телефонам, компании и адресу
-        
+        Проверка лида на дубли по телефонам и компании
+        Проверка по адресу ОТКЛЮЧена (слишком много запросов, редко находит дубли)
+
         Args:
             lead: Лид для проверки
             phones_to_check: Список нормализованных телефонов
             session: Сессия БД
-            
+
         Returns:
             (is_duplicate, reason, bitrix24_lead_id)
         """
         email = lead.work_email
-        
-        # Проверяем каждый телефон
+
+        # 1. Проверяем каждый телефон
         for phone_to_check in phones_to_check:
             result = await self.client.find_duplicates_by_comm(
                 phone=phone_to_check,
                 email=email,
                 entity_type=Bitrix24Client.DUPLICATE_TYPE_LEAD
             )
-            
+
             if result.get("DUPLICATE", False):
                 duplicate_data = result.get("DUBLICATE_ELEMENT_LIST", [])
                 bitrix_id = duplicate_data[0].get("id") if duplicate_data else None
                 logger.info(f"Лид {lead.id}: найден дубль по телефону {phone_to_check}")
                 return True, f"PHONE ({phone_to_check})", bitrix_id
-        
-        # Если не найден по телефону, проверяем по компании
+
+        # 2. Если не найден по телефону, проверяем по компании
         if lead.company_name:
             try:
                 company_leads = await self.client.find_leads_by_company_name(
@@ -350,21 +351,15 @@ class DuplicateChecker:
                     return True, "COMPANY", company_leads[0].get("id")
             except Exception as e:
                 logger.error(f"Лид {lead.id}: ошибка проверки по компании: {e}")
-        
-        # Если не найден по телефону/компании, проверяем по адресу
-        if lead.address:
-            try:
-                address_leads = await self.client.find_leads_by_address(
-                    address=lead.address,
-                    limit=5
-                )
-                logger.info(f"Лид {lead.id}: поиск по адресу '{lead.address}' → найдено {len(address_leads)} лидов")
-                if address_leads:
-                    logger.info(f"Лид {lead.id}: найден дубль по адресу '{lead.address}'")
-                    return True, "ADDRESS", address_leads[0].get("id")
-            except Exception as e:
-                logger.error(f"Лид {lead.id}: ошибка проверки по адресу: {e}")
-        
+
+        # 3. Проверка по адресу ОТКЛЮЧЕНА (слишком много запросов, редко находит дубли)
+        # if lead.address:
+        #     try:
+        #         address_leads = await self.client.find_leads_by_address(...)
+        #     ...
+        # except Exception as e:
+        #     logger.error(...)
+
         return False, None, None
 
     async def _fetch_new_leads(
@@ -742,35 +737,74 @@ async def run_duplicate_check(
     if check_all_new:
         return await checker.check_new_leads(session, limit)
     elif lead_ids:
-        # Разбиваем на батчи для больших объёмов (>500 лидов)
-        if len(lead_ids) > 500:
-            logger.info(f"📦 Лиды разбиты на батчи по 100 шт. (всего: {len(lead_ids)})")
+        # Автоматическая разбивка на части если лидов > 1000
+        if len(lead_ids) > 1000:
+            logger.info(f"📦 Лиды разбиты на части по 500 шт. (всего: {len(lead_ids)})")
             
             total_stats = {"duplicates": 0, "unique": 0, "errors": 0}
-            batch_size = 100
+            part_size = 500
             
-            for i in range(0, len(lead_ids), batch_size):
-                batch = lead_ids[i:i + batch_size]
-                batch_num = (i // batch_size) + 1
-                total_batches = (len(lead_ids) + batch_size - 1) // batch_size
+            for i in range(0, len(lead_ids), part_size):
+                part = lead_ids[i:i + part_size]
+                part_num = (i // part_size) + 1
+                total_parts = (len(lead_ids) + part_size - 1) // part_size
                 
-                logger.info(f"🔄 Обработка батча {batch_num}/{total_batches} (лиды {i+1}-{min(i+batch_size, len(lead_ids))})")
+                logger.info(f"🔄 Обработка части {part_num}/{total_parts} (лиды {i+1}-{min(i+part_size, len(lead_ids))})")
                 
-                batch_stats = await checker.check_leads_batch(session, batch)
+                # Обработка части с батчами по 100 лидов
+                batch_size = 100
+                for j in range(0, len(part), batch_size):
+                    batch = part[j:j + batch_size]
+                    batch_num = (j // batch_size) + 1
+                    total_batches = (len(part) + batch_size - 1) // batch_size
+                    
+                    logger.debug(f"  → Батч {batch_num}/{total_batches}")
+                    
+                    batch_stats = await checker.check_leads_batch(session, batch)
+                    
+                    total_stats["duplicates"] += batch_stats["duplicates"]
+                    total_stats["unique"] += batch_stats["unique"]
+                    total_stats["errors"] += batch_stats["errors"]
+                    
+                    # Пауза между батчами
+                    if j + batch_size < len(part):
+                        await asyncio.sleep(2)
                 
-                total_stats["duplicates"] += batch_stats["duplicates"]
-                total_stats["unique"] += batch_stats["unique"]
-                total_stats["errors"] += batch_stats["errors"]
-                
-                # Пауза между батчами для снижения нагрузки
-                if i + batch_size < len(lead_ids):
-                    logger.info(f"⏳ Пауза 5 сек перед следующим батчем...")
-                    await asyncio.sleep(5)
+                # Пауза между частями
+                if i + part_size < len(lead_ids):
+                    logger.info(f"⏳ Пауза 10 сек перед следующей частью...")
+                    await asyncio.sleep(10)
             
-            logger.info(f"✅ Все батчи обработаны: {total_stats}")
+            logger.info(f"✅ Все части обработаны: {total_stats}")
             return total_stats
         else:
-            return await checker.check_leads_batch(session, lead_ids)
+            # Для небольших объёмов (<1000) — простая обработка с батчами по 100
+            if len(lead_ids) > 500:
+                logger.info(f"📦 Лиды разбиты на батчи по 100 шт. (всего: {len(lead_ids)})")
+                
+                total_stats = {"duplicates": 0, "unique": 0, "errors": 0}
+                batch_size = 100
+                
+                for i in range(0, len(lead_ids), batch_size):
+                    batch = lead_ids[i:i + batch_size]
+                    batch_num = (i // batch_size) + 1
+                    total_batches = (len(lead_ids) + batch_size - 1) // batch_size
+                    
+                    logger.info(f"🔄 Обработка батча {batch_num}/{total_batches}")
+                    
+                    batch_stats = await checker.check_leads_batch(session, batch)
+                    
+                    total_stats["duplicates"] += batch_stats["duplicates"]
+                    total_stats["unique"] += batch_stats["unique"]
+                    total_stats["errors"] += batch_stats["errors"]
+                    
+                    if i + batch_size < len(lead_ids):
+                        await asyncio.sleep(5)
+                
+                logger.info(f"✅ Все батчи обработаны: {total_stats}")
+                return total_stats
+            else:
+                return await checker.check_leads_batch(session, lead_ids)
     else:
         logger.warning("Не указаны лиды для проверки на дубли")
         return {"duplicates": 0, "unique": 0, "errors": 0}
