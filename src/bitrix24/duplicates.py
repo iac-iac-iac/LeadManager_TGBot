@@ -134,9 +134,9 @@ class DuplicateChecker:
         self,
         session: AsyncSession,
         lead_ids: List[int],
-        batch_size: int = 10,
-        max_parallel: int = 3,  # Уменьшено с 5 до 3 для снижения нагрузки
-        rate_limit_delay: float = 0.5  # Увеличено с 0.2 до 0.5 сек
+        batch_size: int = 100,  # Увеличено с 10 до 100 для больших объёмов
+        max_parallel: int = 2,  # Уменьшено с 3 до 2 для снижения нагрузки
+        rate_limit_delay: float = 1.0  # Увеличено с 0.5 до 1.0 сек
     ) -> Dict[str, int]:
         """
         Пакетная проверка лидов на дубли с параллельной обработкой
@@ -160,7 +160,7 @@ class DuplicateChecker:
             if lead and lead.status == LeadStatus.NEW:
                 leads.append(lead)
 
-        logger.info(f"Начата проверка {len(leads)} лидов на дубли (параллелизм: {max_parallel})")
+        logger.info(f"🔍 Начата проверка {len(leads)} лидов на дубли (параллелизм: {max_parallel}, задержка: {rate_limit_delay}с)")
 
         if not leads:
             return stats
@@ -188,8 +188,10 @@ class DuplicateChecker:
         tasks = [check_single_lead(lead) for lead in leads]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Обрабатываем результаты
+        # Обрабатываем результаты с прогрессом
+        processed_count = 0
         for result in results:
+            processed_count += 1
             if isinstance(result, Exception):
                 stats["errors"] += 1
             else:
@@ -201,8 +203,12 @@ class DuplicateChecker:
                     stats["unique"] += 1
                 else:
                     stats["errors"] += 1
+            
+            # Логируем прогресс каждые 100 лидов
+            if processed_count % 100 == 0:
+                logger.info(f"📊 Прогресс: {processed_count}/{len(leads)} (дубли: {stats['duplicates']}, уникальные: {stats['unique']}, ошибки: {stats['errors']})")
 
-        logger.info(f"Проверка завершена: {stats}")
+        logger.info(f"✅ Проверка завершена: {stats}")
         return stats
 
     async def _check_single_lead_internal(
@@ -720,23 +726,51 @@ async def run_duplicate_check(
 ) -> Dict[str, int]:
     """
     Запуск проверки на дубли
-    
+
     Args:
         session: Сессия БД
         bitrix24_client: Клиент Bitrix24
         lead_ids: Список ID лидов для проверки
         check_all_new: Проверить все новые лиды
         limit: Лимит лидов
-        
+
     Returns:
         Статистика проверки
     """
     checker = DuplicateChecker(bitrix24_client)
-    
+
     if check_all_new:
         return await checker.check_new_leads(session, limit)
     elif lead_ids:
-        return await checker.check_leads_batch(session, lead_ids)
+        # Разбиваем на батчи для больших объёмов (>500 лидов)
+        if len(lead_ids) > 500:
+            logger.info(f"📦 Лиды разбиты на батчи по 100 шт. (всего: {len(lead_ids)})")
+            
+            total_stats = {"duplicates": 0, "unique": 0, "errors": 0}
+            batch_size = 100
+            
+            for i in range(0, len(lead_ids), batch_size):
+                batch = lead_ids[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                total_batches = (len(lead_ids) + batch_size - 1) // batch_size
+                
+                logger.info(f"🔄 Обработка батча {batch_num}/{total_batches} (лиды {i+1}-{min(i+batch_size, len(lead_ids))})")
+                
+                batch_stats = await checker.check_leads_batch(session, batch)
+                
+                total_stats["duplicates"] += batch_stats["duplicates"]
+                total_stats["unique"] += batch_stats["unique"]
+                total_stats["errors"] += batch_stats["errors"]
+                
+                # Пауза между батчами для снижения нагрузки
+                if i + batch_size < len(lead_ids):
+                    logger.info(f"⏳ Пауза 5 сек перед следующим батчем...")
+                    await asyncio.sleep(5)
+            
+            logger.info(f"✅ Все батчи обработаны: {total_stats}")
+            return total_stats
+        else:
+            return await checker.check_leads_batch(session, lead_ids)
     else:
         logger.warning("Не указаны лиды для проверки на дубли")
         return {"duplicates": 0, "unique": 0, "errors": 0}
