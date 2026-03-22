@@ -420,6 +420,18 @@ async def confirm_bitrix_load_direct(callback: CallbackQuery, state: FSMContext,
     # СРАЗУ отвечаем на callback чтобы не истёк таймаут
     await callback.answer("⏳ Загрузка лидов в Bitrix24...")
     
+    # Удаляем сообщение с кнопкой подтверждения чтобы нельзя было нажать повторно
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    # Отправляем сообщение о начале загрузки
+    try:
+        await callback.message.answer("⏳ <b>Загрузка лидов в Bitrix24...</b>\n\nЭто может занять несколько минут.")
+    except Exception:
+        pass
+
     await process_bitrix_load(callback, state, session, None)
 
 
@@ -713,30 +725,33 @@ async def handle_bitrix_id_input(message: Message, state: FSMContext, session: A
 async def handle_bitrix_segment_select(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Обработка выбора сегмента для загрузки на Bitrix24 ID"""
     try:
+        # СРАЗУ отвечаем на callback чтобы не истёк таймаут
+        await callback.answer()
+        
         parsed = callback.data.split(":")
         # ✅ Получаем ИНДЕКС сегмента
         segment_index = int(parsed[1])
-        
+
         # Получаем данные из состояния
         state_data = await state.get_data()
         segments = state_data.get("segments_list", [])
-        
+
         # ✅ Проверяем границы
         if segment_index >= len(segments):
             logger.error(f"Индекс сегмента вне диапазона: {segment_index} >= {len(segments)}")
-            await callback.answer("⚠️ Сегмент не найден", show_alert=True)
+            await callback.message.answer("⚠️ Сегмент не найден")
             return
-        
+
         # ✅ Получаем сегмент по индексу
         segment_data = segments[segment_index]
         segment_name, cities = segment_data
-        
+
         # Сохраняем в состоянии
         await state.update_data(
             selected_segment=segment_name,
             segment_index=segment_index
         )
-        
+
         logger.info(f"Выбран сегмент: {segment_name}, индекс: {segment_index}, города: {cities}")
 
         if not cities:
@@ -1078,12 +1093,12 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
                 )
                 imported_count += 1
                 
-                # Задержка между импортами для снижения нагрузки на API
+                # Задержка между импортами для снижения нагрузки на API (50% уменьшено)
                 if i % 10 == 0:  # Каждые 10 лидов
-                    logger.info(f"⏳ Пауза 3 сек после {i} лидов...")
-                    await asyncio.sleep(3)
+                    logger.info(f"⏳ Пауза 1.5 сек после {i} лидов...")
+                    await asyncio.sleep(1.5)  # Было 3 сек
                 else:
-                    await asyncio.sleep(0.5)  # Небольшая задержка между каждым лидом
+                    await asyncio.sleep(0.25)  # Было 0.5 сек
                 
                 # Обновляем статус лида
                 lead.status = LeadStatus.IMPORTED
@@ -1096,6 +1111,12 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
 
         # Показываем успех (с обработкой ошибок callback)
         try:
+            # Сначала пытаемся удалить сообщение о начале загрузки
+            try:
+                await target.message.delete()
+            except Exception:
+                pass
+            
             await target.answer(
                 ADMIN_LOAD_LEADS_BITRIX_SUCCESS.format(
                     bitrix_id=bitrix_id,
@@ -1117,8 +1138,8 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
                     ),
                     reply_markup=create_back_keyboard("admin_menu")
                 )
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.error(f"Не удалось отправить сообщение: {type(e2).__name__}: {e2}")
 
         # Логируем
         logger.info(
@@ -1135,6 +1156,12 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
         
         # Пробуем отправить ошибку
         try:
+            # Сначала пытаемся удалить сообщение о начале загрузки
+            try:
+                await target.message.delete()
+            except Exception:
+                pass
+            
             await target.answer(
                 ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
                 reply_markup=create_back_keyboard("admin_menu")
