@@ -139,33 +139,42 @@ class LeadImporter:
     ) -> Dict[str, int]:
         """
         Пакетный импорт лидов в Bitrix24
-        
+
         Args:
             session: Сессия БД
             lead_ids: Список ID лидов
             bitrix24_user_id: ID ответственного в Bitrix24
-            
+
         Returns:
             Статистика: {"imported": N, "errors": N}
         """
+        import asyncio
+        
         stats = {"imported": 0, "errors": 0}
         errors_list = []
-        
+
         logger.info(f"Начат импорт {len(lead_ids)} лидов в Bitrix24")
-        
+
         for i, lead_id in enumerate(lead_ids, 1):
             success, error = await self.import_lead(session, lead_id, bitrix24_user_id)
-            
+
             if success:
                 stats["imported"] += 1
             else:
                 stats["errors"] += 1
                 errors_list.append(f"Лид {lead_id}: {error}")
-            
+
             # Логгируем прогресс
             if i % 10 == 0:
                 logger.info(f"Импортировано {i}/{len(lead_ids)} лидов")
-        
+            
+            # Задержка между импортами для снижения нагрузки на API (50% уменьшено)
+            if i % 10 == 0:  # Каждые 10 лидов
+                logger.debug(f"⏳ Пауза 1.5 сек после {i} лидов...")
+                await asyncio.sleep(1.5)  # Было 3 сек
+            else:
+                await asyncio.sleep(0.25)  # Было 0.5 сек
+
         # Создаем запись в логе
         await crud.create_log(
             session,
@@ -173,12 +182,12 @@ class LeadImporter:
             related_lead_ids=lead_ids,
             description=f"Импортировано лидов: {stats['imported']}, Ошибки: {stats['errors']}"
         )
-        
+
         if errors_list:
             logger.warning(f"Ошибки при импорте: {'; '.join(errors_list[:5])}")  # Показываем первые 5
-        
+
         logger.info(f"Завершён импорт лидов. Успешно: {stats['imported']}, Ошибки: {stats['errors']}")
-        
+
         return stats
 
 

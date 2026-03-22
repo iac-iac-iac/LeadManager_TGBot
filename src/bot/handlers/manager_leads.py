@@ -449,13 +449,19 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
     """Подтверждение выдачи лидов"""
     # СРАЗУ отвечаем на callback чтобы не истёк таймаут
     await callback.answer("⏳ Загрузка лидов в Bitrix24...")
-    
+
     # Удаляем сообщение с кнопкой подтверждения чтобы нельзя было нажать повторно
     try:
         await callback.message.delete()
     except Exception:
         pass
     
+    # Отправляем сообщение о начале загрузки
+    try:
+        await callback.message.answer("⏳ <b>Загрузка лидов в Bitrix24...</b>\n\nЭто может занять несколько минут.")
+    except Exception:
+        pass
+
     telegram_id = str(callback.from_user.id)
     parsed = parse_callback_data(callback.data)
 
