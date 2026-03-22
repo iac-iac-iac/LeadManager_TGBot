@@ -4,6 +4,7 @@
 Админ может выбрать менеджера, сегмент, город и количество лидов,
 затем загрузить их в Bitrix24 и уведомить менеджера
 """
+import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Any
 from aiogram import Router, F
@@ -569,9 +570,13 @@ async def cancel_load(callback: CallbackQuery, state: FSMContext):
 async def back_to_segment_select(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Возврат к выбору сегмента"""
     try:
+        # Сохраняем bitrix_user_id перед возвратом (чтобы не потерялся)
+        state_data = await state.get_data()
+        bitrix_id = state_data.get("bitrix_user_id")
+        
         # Получаем сегменты
         segments = await crud.get_segments_with_cities(session, exclude_frozen=True)
-        
+
         if not segments:
             await callback.message.answer(
                 "⚠️ Нет доступных сегментов",
@@ -579,25 +584,28 @@ async def back_to_segment_select(callback: CallbackQuery, state: FSMContext, ses
             )
             await state.clear()
             return
-        
-        # Сохраняем в состоянии
-        await state.update_data(segments_list=segments)
-        await state.set_state(AdminLoadLeadsStates.SELECT_SEGMENT)
-        
+
+        # Сохраняем в состоянии (включая bitrix_user_id)
+        await state.update_data(
+            segments_list=segments,
+            bitrix_user_id=bitrix_id  # Сохраняем ID
+        )
+        await state.set_state(AdminLoadLeadsBitrixStates.SELECT_SEGMENT)
+
         # Показываем сегменты
         keyboard = create_segments_load_keyboard(segments, page=0, page_size=10)
-        
+
         # Удаляем предыдущее сообщение
         try:
             await callback.message.delete()
         except Exception:
             pass
-        
+
         await callback.message.answer(
             ADMIN_LOAD_LEADS_SELECT_SEGMENT,
             reply_markup=keyboard
         )
-        
+
     except Exception as e:
         logger.error(f"Ошибка возврата к сегментам: {type(e).__name__}: {e}")
         await callback.answer("⚠️ Ошибка", show_alert=True)
