@@ -447,20 +447,33 @@ async def show_lead_confirmation(
 @router.callback_query(F.data.startswith("confirm_leads:"))
 async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession, bitrix24_client: Bitrix24Client):
     """Подтверждение выдачи лидов"""
+    # СРАЗУ отвечаем на callback чтобы не истёк таймаут
+    await callback.answer("⏳ Загрузка лидов в Bitrix24...")
+    
+    # Удаляем сообщение с кнопкой подтверждения чтобы нельзя было нажать повторно
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
     telegram_id = str(callback.from_user.id)
     parsed = parse_callback_data(callback.data)
-    
+
     count = int(parsed["params"][0]) if parsed["params"] else 0
-    
+
     # Получаем данные из FSM
     data = await state.get_data()
     segment = data.get("selected_segment")
     city = data.get("selected_city")
-    
+
     if not segment or count == 0:
-        await callback.answer("⚠️ Ошибка подтверждения", show_alert=True)
+        try:
+            await callback.message.answer("⚠️ Ошибка подтверждения")
+        except Exception:
+            pass
+        await state.clear()
         return
-    
+
     # Получаем доступные лиды
     leads = await crud.get_available_leads(
         session,
@@ -469,50 +482,66 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         limit=count,
         exclude_telegram_id=telegram_id
     )
-    
+
     if not leads:
-        await callback.message.answer(
-            "⚠️ Лиды закончились пока вы выбирали.\n"
-            "Попробуйте другой сегмент."
-        )
+        try:
+            await callback.message.answer(
+                "⚠️ Лиды закончились пока вы выбирали.\n"
+                "Попробуйте другой сегмент."
+            )
+        except Exception:
+            pass
         await state.clear()
-        await callback.answer()
         return
-    
+
     # Назначаем лиды менеджеру
     lead_ids = [lead.id for lead in leads]
     await crud.assign_leads_to_manager(session, lead_ids, telegram_id)
-    
+
     # Импортируем в Bitrix24
     user = await crud.get_user_by_telegram_id(session, telegram_id)
     bitrix24_user_id = user.bitrix24_user_id if user else None
-    
+
     stats = await import_assigned_leads(
         session,
         bitrix24_client,
         telegram_id,
         bitrix24_user_id
     )
-    
+
     await session.commit()
-    
+
     # Отправляем подтверждение
     city_text = city or "Все города"
-    await callback.message.answer(
-        LEADS_ISSUED.format(
-            count=len(leads),
-            segment=segment,
-            city=city_text
-        ),
-        reply_markup=create_manager_main_menu()
-    )
-    
+    try:
+        await callback.message.answer(
+            LEADS_ISSUED.format(
+                count=len(leads),
+                segment=segment,
+                city=city_text
+            ),
+            reply_markup=create_manager_main_menu()
+        )
+    except Exception as e:
+        logger.error(f"Не удалось отправить подтверждение: {type(e).__name__}: {e}")
+        # Пробуем отправить новым сообщением если callback истёк
+        try:
+            await callback.bot.send_message(
+                chat_id=telegram_id,
+                text=LEADS_ISSUED.format(
+                    count=len(leads),
+                    segment=segment,
+                    city=city_text
+                ),
+                reply_markup=create_manager_main_menu()
+            )
+        except Exception:
+            pass
+
     # Очищаем состояние
     await state.clear()
-    
+
     logger.info(f"Менеджер {telegram_id} получил {len(leads)} лидов ({segment}, {city})")
-    
-    await callback.answer()
 
 
 @router.callback_query(F.data == "cancel_leads")

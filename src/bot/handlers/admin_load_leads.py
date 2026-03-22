@@ -405,12 +405,27 @@ async def show_confirm(target, state: FSMContext):
 @router.callback_query(F.data == "load_leads_confirm")
 async def confirm_load(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Подтверждение загрузки лидов (на менеджера)"""
+    # СРАЗУ отвечаем на callback чтобы не истёк таймаут
+    await callback.answer("⏳ Загрузка лидов в Bitrix24...")
+    
+    # Удаляем сообщение с кнопкой подтверждения чтобы нельзя было нажать повторно
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    # Отправляем сообщение о начале загрузки
+    try:
+        await callback.message.answer("⏳ <b>Загрузка лидов в Bitrix24...</b>\n\nЭто может занять несколько минут.")
+    except Exception:
+        pass
+    
     # Проверяем состояние - если это Bitrix24 ID, вызываем другой обработчик
     current_state = await state.get_state()
     if current_state in AdminLoadLeadsBitrixStates.__all_states__:
         await confirm_bitrix_load(callback, state, session)
         return
-    
+
     await process_load_leads(callback, state, session, None)
 
 
@@ -500,24 +515,46 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
         
         # Коммитим транзакцию
         await session.commit()
-        
-        # Показываем успех
-        await target.answer(
-            ADMIN_LOAD_LEADS_SUCCESS.format(
-                manager_name=manager_name,
-                count=imported_count,
-                segment=segment
-            ),
-            reply_markup=create_back_keyboard("admin_menu")
-        )
-        
+
+        # Показываем успех (с обработкой ошибок callback)
+        try:
+            # Сначала пытаемся удалить сообщение о начале загрузки
+            try:
+                await target.message.delete()
+            except Exception:
+                pass
+            
+            await target.answer(
+                ADMIN_LOAD_LEADS_SUCCESS.format(
+                    manager_name=manager_name,
+                    count=imported_count,
+                    segment=segment
+                ),
+                reply_markup=create_back_keyboard("admin_menu")
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить уведомление: {type(e).__name__}: {e}")
+            # Пробуем отправить новым сообщением если callback истёк
+            try:
+                await target.bot.send_message(
+                    chat_id=target.from_user.id,
+                    text=ADMIN_LOAD_LEADS_SUCCESS.format(
+                        manager_name=manager_name,
+                        count=imported_count,
+                        segment=segment
+                    ),
+                    reply_markup=create_back_keyboard("admin_menu")
+                )
+            except Exception as e2:
+                logger.error(f"Не удалось отправить сообщение: {type(e2).__name__}: {e2}")
+
         # Уведомляем менеджера
         try:
             admin_user = await crud.get_user_by_telegram_id(session, str(target.from_user.id))
             admin_name = admin_user.full_name if admin_user else "Администратор"
-            
+
             city_text = city or "Все города"
-            
+
             await target.bot.send_message(
                 chat_id=manager_id,
                 text=MANAGER_LEADS_LOADED_NOTIFICATION.format(
@@ -544,10 +581,29 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
     except Exception as e:
         await session.rollback()
         logger.error(f"Ошибка загрузки лидов: {type(e).__name__}: {e}")
-        await target.answer(
-            ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
-            reply_markup=create_back_keyboard("admin_menu")
-        )
+        
+        # Пробуем отправить ошибку
+        try:
+            # Сначала пытаемся удалить сообщение о начале загрузки
+            try:
+                await target.message.delete()
+            except Exception:
+                pass
+            
+            await target.answer(
+                ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
+                reply_markup=create_back_keyboard("admin_menu")
+            )
+        except Exception:
+            try:
+                await target.bot.send_message(
+                    chat_id=target.from_user.id,
+                    text=ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
+                    reply_markup=create_back_keyboard("admin_menu")
+                )
+            except Exception:
+                pass
+        
         await state.clear()
 
 
