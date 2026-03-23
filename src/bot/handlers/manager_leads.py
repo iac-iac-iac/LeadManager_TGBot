@@ -208,7 +208,12 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
         SELECT_CITY.format(segment=segment),
         reply_markup=keyboard
     )
-    await callback.answer()
+    
+    # Отвечаем на callback с обработкой ошибок
+    try:
+        await callback.answer()
+    except Exception as e:
+        logger.debug(f"Не удалось ответить на callback: {type(e).__name__}: {e}")
 
 
 # =============================================================================
@@ -236,7 +241,11 @@ async def handle_back_to_segments(callback: CallbackQuery, state: FSMContext, se
         reply_markup=keyboard
     )
 
-    await callback.answer()
+    # Отвечаем на callback с обработкой ошибок
+    try:
+        await callback.answer()
+    except Exception as e:
+        logger.debug(f"Не удалось ответить на callback: {type(e).__name__}: {e}")
 
 
 @router.callback_query(F.data.startswith("select_city:"))
