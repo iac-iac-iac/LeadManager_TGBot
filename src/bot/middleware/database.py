@@ -68,6 +68,7 @@ class DatabaseSessionMiddleware(BaseMiddleware):
                 # Коммит при успехе (если обработчик не сделал сам)
                 # Примечание: обработчики могут делать commit сами для контроля транзакций
                 # Этот commit нужен для обработчиков, которые не делают явный commit
+                await session.commit()
 
                 return result
 
@@ -79,5 +80,4 @@ class DatabaseSessionMiddleware(BaseMiddleware):
 
             finally:
                 # Сессия автоматически закрывается через async with
-
                 pass
