@@ -89,7 +89,12 @@ async def handle_leads_menu(callback: CallbackQuery, session: AsyncSession, stat
         SELECT_SEGMENT,
         reply_markup=keyboard
     )
-    await callback.answer()
+    
+    # Отвечаем на callback с обработкой ошибок
+    try:
+        await callback.answer()
+    except Exception as e:
+        logger.debug(f"Не удалось ответить на callback: {type(e).__name__}: {e}")
 
 
 # =============================================================================

@@ -46,43 +46,55 @@ class NotificationService:
         self,
         session: AsyncSession,
         new_status: str,
-        reason: str | None = None
+        reason: str | None = None,
+        timeout: int = 30  # Таймаут рассылки (сек)
     ) -> dict:
         """
         Рассылка уведомлений об изменении статуса бота
-        
+
         Args:
             session: Сессия БД
             new_status: Новый статус (running, stopped, maintenance)
             reason: Причина (опционально)
-            
+            timeout: Таймаут рассылки в секундах
+
         Returns:
             Статистика рассылки: {sent: int, failed: int}
         """
         # Получаем всех активных пользователей
         users = await self._get_active_users(session)
-        
+
         if not users:
             logger.info("Нет активных пользователей для рассылки")
             return {"sent": 0, "failed": 0}
-        
+
         # Формируем сообщение
         message_text = self._build_notification_message(new_status, reason)
-        
+
         logger.info(f"Начало рассылки: {len(users)} пользователей, статус: {new_status}")
-        
-        # Запускаем рассылку
+
+        # Запускаем рассылку с таймаутом
         stats = {"sent": 0, "failed": 0}
-        
+
         async def send_with_semaphore(user: User):
             """Отправка с ограничением параллелизма"""
             async with self._semaphore:
-                success = await self._send_to_user(user, message_text)
-                if success:
-                    stats["sent"] += 1
-                else:
+                try:
+                    success = await asyncio.wait_for(
+                        self._send_to_user(user, message_text),
+                        timeout=5.0  # Таймаут на одного пользователя
+                    )
+                    if success:
+                        stats["sent"] += 1
+                    else:
+                        stats["failed"] += 1
+                except asyncio.TimeoutError:
+                    logger.warning(f"Таймаут отправки пользователю {user.telegram_id}")
                     stats["failed"] += 1
-                
+                except Exception as e:
+                    logger.warning(f"Ошибка отправки пользователю {user.telegram_id}: {type(e).__name__}: {e}")
+                    stats["failed"] += 1
+
                 # Небольшая задержка для естественности
                 await asyncio.sleep(self.SEND_DELAY)
         
