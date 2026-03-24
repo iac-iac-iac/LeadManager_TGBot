@@ -164,8 +164,8 @@ async def handle_manager_select(callback: CallbackQuery, state: FSMContext, sess
             selected_manager_name=manager["full_name"]
         )
         
-        # Получаем сегменты
-        segments = await crud.get_segments_with_cities(session, exclude_frozen=True)
+        # Получаем сегменты (включая замороженные — админ может загружать в любые)
+        segments = await crud.get_segments_with_cities(session, exclude_frozen=False)
         
         if not segments:
             await callback.message.answer(
@@ -642,8 +642,8 @@ async def back_to_segment_select(callback: CallbackQuery, state: FSMContext, ses
         state_data = await state.get_data()
         bitrix_id = state_data.get("bitrix_user_id")
         
-        # Получаем сегменты
-        segments = await crud.get_segments_with_cities(session, exclude_frozen=True)
+        # Получаем сегменты (включая замороженные — админ может загружать в любые)
+        segments = await crud.get_segments_with_cities(session, exclude_frozen=False)
 
         if not segments:
             await callback.message.answer(
@@ -743,8 +743,8 @@ async def handle_bitrix_id_input(message: Message, state: FSMContext, session: A
         await state.update_data(bitrix_user_id=bitrix_id)
         await state.set_state(AdminLoadLeadsBitrixStates.SELECT_SEGMENT)
 
-        # Получаем сегменты
-        segments = await crud.get_segments_with_cities(session, exclude_frozen=True)
+        # Получаем сегменты (включая замороженные — админ может загружать в любые)
+        segments = await crud.get_segments_with_cities(session, exclude_frozen=False)
 
         if not segments:
             await message.answer(
