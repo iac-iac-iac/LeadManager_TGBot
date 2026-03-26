@@ -270,6 +270,14 @@ async def main():
     from src.bot.middleware.delete_previous_message import DeletePreviousMessageMiddleware
     dp.callback_query.middleware(DeletePreviousMessageMiddleware())
 
+    # 6. Очередь импорта в Bitrix24
+    from src.bitrix24.import_queue import get_import_queue
+    import_queue = get_import_queue()
+    await import_queue.start_worker()
+    dp["import_queue"] = import_queue
+    
+    logger.info("🔄 Очередь импорта запущена")
+
     # Регистрируем обработчики
     register_handlers(dp, db_manager, config)
 
@@ -367,6 +375,11 @@ async def main():
             logger.warning(f"Ошибка отправки уведомления об остановке: {type(e).__name__}: {e}")
         
     finally:
+        # Останавливаем очередь импорта
+        if "import_queue" in dp:
+            await dp["import_queue"].stop()
+            logger.info("⏹️ Очередь импорта остановлена")
+        
         # Закрываем соединения
         logger.info("Закрытие соединений...")
         await bot.session.close()

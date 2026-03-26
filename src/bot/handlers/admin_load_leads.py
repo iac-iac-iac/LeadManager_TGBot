@@ -32,6 +32,8 @@ from ..messages.texts import (
     ADMIN_LOAD_LEADS_BITRIX_INFO,
     ADMIN_LOAD_LEADS_INVALID_BITRIX_ID,
     ADMIN_LOAD_LEADS_BITRIX_SUCCESS,
+    IMPORT_QUEUED,
+    IMPORT_COMPLETE,
     BTN_BACK,
     BTN_CANCEL,
 )
@@ -488,35 +490,75 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
             await state.clear()
             return
         
-        # Назначаем лиды менеджеру
+        # Назначаем лиды менеджеру и ставим в очередь на импорт
         lead_ids = [lead.id for lead in leads]
         await crud.assign_leads_to_manager(
             session, lead_ids, manager_id, loaded_by_admin=True
         )
         
-        # Импортируем в Bitrix24 используя правильный метод
-        config = get_config()
-        bitrix_client = get_bitrix24_client(config.bitrix24.webhook_url)
-        
+        # Коммитим назначение
+        await session.commit()
+
         # Получаем Bitrix24 ID менеджера
         manager = await crud.get_user_by_telegram_id(session, manager_id)
         bitrix_user_id = manager.bitrix24_user_id if manager else None
         
-        # Импортируем назначенные лиды
-        stats = await import_assigned_leads(
-            session,
-            bitrix_client,
-            manager_id,
-            bitrix_user_id
+        # Получаем очередь импорта из контекста
+        from ...bitrix24.import_queue import get_import_queue
+        import_queue = get_import_queue()
+        
+        # Создаём callback для уведомления о завершении
+        async def import_complete_callback(stats: Dict[str, int]):
+            """Уведомление о завершении импорта"""
+            try:
+                imported_count = stats.get("imported", 0)
+                error_count = stats.get("errors", 0)
+                
+                # Уведомляем админа
+                await target.bot.send_message(
+                    chat_id=target.from_user.id,
+                    text=IMPORT_COMPLETE.format(
+                        imported=imported_count,
+                        errors=error_count
+                    ),
+                    parse_mode="HTML"
+                )
+                
+                # Уведомляем менеджера
+                admin_user = await crud.get_user_by_telegram_id(session, str(target.from_user.id))
+                admin_name = admin_user.full_name if admin_user else "Администратор"
+                city_text = city or "Все города"
+                
+                await target.bot.send_message(
+                    chat_id=manager_id,
+                    text=MANAGER_LEADS_LOADED_NOTIFICATION.format(
+                        admin_name=admin_name,
+                        count=imported_count,
+                        segment=segment,
+                        city=city_text
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка уведомления о завершении импорта: {e}")
+        
+        # Добавляем в очередь
+        queued = await import_queue.add_import(
+            lead_ids=lead_ids,
+            manager_id=manager_id,
+            bitrix_user_id=bitrix_user_id,
+            callback=import_complete_callback
         )
         
-        imported_count = stats.get("imported", 0)
-        error_count = stats.get("errors", 0)
-        
-        # Коммитим транзакцию
-        await session.commit()
+        if not queued:
+            await target.answer(
+                ADMIN_LOAD_LEADS_ERROR.format(error="Очередь переполнена, попробуйте позже"),
+                reply_markup=create_back_keyboard("admin_menu")
+            )
+            await state.clear()
+            return
 
-        # Показываем успех (с обработкой ошибок callback)
+        # Показываем сообщение о постановке в очередь
         try:
             # Сначала пытаемся удалить сообщение о начале загрузки
             try:
@@ -525,10 +567,10 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
                 pass
             
             await target.answer(
-                ADMIN_LOAD_LEADS_SUCCESS.format(
-                    manager_name=manager_name,
-                    count=imported_count,
-                    segment=segment
+                IMPORT_QUEUED.format(
+                    count=len(lead_ids),
+                    segment=segment,
+                    city=city or "Все города"
                 ),
                 reply_markup=create_back_keyboard("admin_menu")
             )
@@ -538,17 +580,17 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
             try:
                 await target.bot.send_message(
                     chat_id=target.from_user.id,
-                    text=ADMIN_LOAD_LEADS_SUCCESS.format(
-                        manager_name=manager_name,
-                        count=imported_count,
-                        segment=segment
+                    text=IMPORT_QUEUED.format(
+                        count=len(lead_ids),
+                        segment=segment,
+                        city=city or "Все города"
                     ),
                     reply_markup=create_back_keyboard("admin_menu")
                 )
             except Exception as e2:
                 logger.error(f"Не удалось отправить сообщение: {type(e2).__name__}: {e2}")
 
-        # Уведомляем менеджера
+        # Уведомляем менеджера о том что лиды в очереди
         try:
             admin_user = await crud.get_user_by_telegram_id(session, str(target.from_user.id))
             admin_name = admin_user.full_name if admin_user else "Администратор"
@@ -557,15 +599,15 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
 
             await target.bot.send_message(
                 chat_id=manager_id,
-                text=MANAGER_LEADS_LOADED_NOTIFICATION.format(
-                    admin_name=admin_name,
-                    count=imported_count,
-                    segment=segment,
-                    city=city_text
-                ),
+                text=f"📦 <b>Лиды поставлены в очередь на импорт!</b>\n\n"
+                     f"👨‍💼 Администратор: {admin_name}\n"
+                     f"📊 Количество: {len(lead_ids)}\n"
+                     f"📁 Сегмент: {segment}\n"
+                     f"🏙 Город: {city_text}\n\n"
+                     f"⏳ Вы получите уведомление когда импорт завершится.",
                 parse_mode="HTML"
             )
-            logger.info(f"Менеджер {manager_id} уведомлён о загрузке {imported_count} лидов")
+            logger.info(f"Менеджер {manager_id} уведомлён о постановке в очередь {len(lead_ids)} лидов")
         except Exception as e:
             logger.error(f"Не удалось уведомить менеджера {manager_id}: {e}")
         

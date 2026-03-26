@@ -66,9 +66,8 @@ class DatabaseSessionMiddleware(BaseMiddleware):
                 result = await handler(event, data)
 
                 # Коммит при успехе (если обработчик не сделал сам)
-                # Примечание: обработчики могут делать commit сами для контроля транзакций
-                # Этот commit нужен для обработчиков, которые не делают явный commit
                 await session.commit()
+                logger.debug("Транзакция успешно закоммичена")
 
                 return result
 
