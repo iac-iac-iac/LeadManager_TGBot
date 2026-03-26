@@ -10,11 +10,11 @@ import asyncio
 from typing import Optional, Callable, Awaitable, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...database import crud
-from ...bitrix24.leads import import_assigned_leads
-from ...bitrix24.client import get_bitrix24_client
-from ...config import get_config
-from ...logger import get_logger
+from src.database import crud
+from src.bitrix24.leads import import_assigned_leads
+from src.bitrix24.client import get_bitrix24_client
+from src.config import get_config
+from src.logger import get_logger
 
 logger = get_logger(__name__)
 
