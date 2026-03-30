@@ -283,50 +283,7 @@ async def main():
 
     # Запускаем polling
     logger.info("Бот запущен в режиме polling")
-    
-    # ОТПРАВЛЯЕМ УВЕДОМЛЕНИЕ ВСЕМ ПОЛЬЗОВАТЕЛЯМ О ЗАПУСКЕ БОТА
-    try:
-        from src.database import crud as db_crud
-        
-        async with db_manager.async_session_factory() as session:
-            # Получаем ВСЕХ активных пользователей (админы + менеджеры)
-            users = await db_crud.get_all_active_users(session)
-            
-            if users:
-                # Формируем сообщение
-                bot_info = await bot.get_me()
-                startup_message = f"""
-✅ <b>Бот запущен!</b>
 
-🤖 Бот: @{bot_info.username}
-⏰ Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
-
-Бот готов к работе.
-"""
-                
-                # Отправляем каждому пользователю
-                sent_count = 0
-                failed_count = 0
-                
-                for user in users:
-                    try:
-                        await bot.send_message(
-                            chat_id=user.telegram_id,
-                            text=startup_message,
-                            parse_mode="HTML"
-                        )
-                        sent_count += 1
-                        logger.debug(f"Уведомление о запуске отправлено пользователю {user.telegram_id}")
-                    except Exception as e:
-                        failed_count += 1
-                        logger.warning(f"Не удалось отправить уведомление пользователю {user.telegram_id}: {e}")
-                
-                logger.info(f"Рассылка о запуске: отправлено {sent_count}, ошибок {failed_count}")
-                        
-    except Exception as e:
-        logger.warning(f"Ошибка отправки уведомления о запуске: {type(e).__name__}: {e}")
-
-    # Запускаем polling
     try:
         await dp.start_polling(bot)
     except KeyboardInterrupt:
@@ -376,9 +333,12 @@ async def main():
         
     finally:
         # Останавливаем очередь импорта
-        if "import_queue" in dp:
-            await dp["import_queue"].stop()
-            logger.info("⏹️ Очередь импорта остановлена")
+        try:
+            if "import_queue" in dp:
+                await dp["import_queue"].stop()
+                logger.info("⏹️ Очередь импорта остановлена")
+        except Exception:
+            pass  # Игнорируем ошибки при остановке
         
         # Закрываем соединения
         logger.info("Закрытие соединений...")

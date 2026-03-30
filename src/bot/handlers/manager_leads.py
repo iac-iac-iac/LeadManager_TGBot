@@ -301,7 +301,11 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
         reply_markup=create_back_keyboard("leads_menu")
     )
 
-    await callback.answer()
+    # Отвечаем на callback с обработкой ошибок
+    try:
+        await callback.answer()
+    except Exception as e:
+        logger.debug(f"Не удалось ответить на callback: {type(e).__name__}: {e}")
 
 
 async def show_lead_count_input(callback: CallbackQuery, state: FSMContext, segment: str):
