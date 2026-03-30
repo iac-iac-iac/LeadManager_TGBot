@@ -5,6 +5,7 @@
 - Последовательного импорта лидов (чтобы не блокировать SQLite)
 - Обработки массовых загрузок в фоне
 - Уведомления пользователей о завершении импорта
+- Проверки дублей в фоне
 """
 import asyncio
 from typing import Optional, Callable, Awaitable, Dict, Any, List
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import crud
 from src.bitrix24.leads import import_assigned_leads
 from src.bitrix24.client import get_bitrix24_client
+from src.bitrix24.duplicates import DuplicateChecker
 from src.config import get_config
 from src.logger import get_logger
 
@@ -22,14 +24,14 @@ logger = get_logger(__name__)
 class ImportTask:
     """
     Задача импорта лидов
-    
+
     Attributes:
         lead_ids: Список ID лидов для импорта
         manager_id: Telegram ID менеджера
         bitrix_user_id: Bitrix24 ID менеджера
         callback: Функция обратного вызова (уведомление о завершении)
     """
-    
+
     def __init__(
         self,
         lead_ids: List[int],
@@ -40,6 +42,24 @@ class ImportTask:
         self.lead_ids = lead_ids
         self.manager_id = manager_id
         self.bitrix_user_id = bitrix_user_id
+        self.callback = callback
+
+
+class DuplicateCheckTask:
+    """
+    Задача проверки дублей
+
+    Attributes:
+        lead_ids: Список ID лидов для проверки
+        callback: Функция обратного вызова (уведомление о завершении)
+    """
+
+    def __init__(
+        self,
+        lead_ids: List[int],
+        callback: Optional[Callable[[Dict[str, int]], Awaitable[None]]] = None
+    ):
+        self.lead_ids = lead_ids
         self.callback = callback
 
 
@@ -95,6 +115,38 @@ class BitrixImportQueue:
         
         logger.info("⏹️ Очередь импорта остановлена")
     
+    async def add_duplicate_check(
+        self,
+        lead_ids: List[int],
+        callback: Optional[Callable[[Dict[str, int]], Awaitable[None]]] = None
+    ) -> bool:
+        """
+        Добавление проверки дублей в очередь
+
+        Args:
+            lead_ids: Список ID лидов для проверки
+            callback: Функция обратного вызова
+
+        Returns:
+            True если успешно добавлено, False если очередь переполнена
+        """
+        if not self._is_running:
+            logger.error("Очередь не запущена")
+            return False
+
+        try:
+            task = DuplicateCheckTask(lead_ids, callback)
+            await asyncio.wait_for(self._queue.put(task), timeout=5.0)
+
+            queue_size = self._queue.qsize()
+            logger.info(f"🔍 Проверка дублей добавлена в очередь ({queue_size} в очереди)")
+
+            return True
+
+        except asyncio.TimeoutError:
+            logger.error("❌ Очередь переполнена, проверка отклонена")
+            return False
+
     async def add_import(
         self,
         lead_ids: List[int],
@@ -104,13 +156,13 @@ class BitrixImportQueue:
     ) -> bool:
         """
         Добавление импорта в очередь
-        
+
         Args:
             lead_ids: Список ID лидов
             manager_id: Telegram ID менеджера
             bitrix_user_id: Bitrix24 ID менеджера
             callback: Функция обратного вызова
-            
+
         Returns:
             True если успешно добавлено, False если очередь переполнена
         """
@@ -149,34 +201,40 @@ class BitrixImportQueue:
                 
                 if self._current_task is None:
                     continue
-                
-                logger.info(
-                    f"🚀 Начало импорта {len(self._current_task.lead_ids)} лидов "
-                    f"для менеджера {self._current_task.manager_id}"
-                )
-                
-                # Выполняем импорт
-                stats = await self._process_import(self._current_task)
-                
+
+                # Проверяем тип задачи
+                if isinstance(self._current_task, DuplicateCheckTask):
+                    # Проверка дублей
+                    logger.info(f"🔍 Начало проверки {len(self._current_task.lead_ids)} лидов на дубли")
+                    stats = await self._process_duplicate_check(self._current_task)
+                else:
+                    # Импорт лидов
+                    logger.info(
+                        f"🚀 Начало импорта {len(self._current_task.lead_ids)} лидов "
+                        f"для менеджера {self._current_task.manager_id}"
+                    )
+                    stats = await self._process_import(self._current_task)
+
                 # Обновляем статистику
                 self._stats["processed"] += 1
-                self._stats["total_leads"] += len(self._current_task.lead_ids)
-                
+                if hasattr(self._current_task, 'lead_ids'):
+                    self._stats["total_leads"] += len(self._current_task.lead_ids)
+
                 if stats.get("errors", 0) > 0:
                     self._stats["failed"] += 1
-                
+
                 logger.info(
-                    f"✅ Импорт завершён: {stats.get('imported', 0)} успешно, "
+                    f"✅ Задача завершена: {stats.get('imported', 0)} успешно, "
                     f"{stats.get('errors', 0)} ошибок"
                 )
-                
+
                 # Вызываем callback если есть
                 if self._current_task.callback:
                     try:
                         await self._current_task.callback(stats)
                     except Exception as e:
                         logger.error(f"Ошибка callback: {type(e).__name__}: {e}")
-                
+
                 # Помечаем задачу как выполненную
                 self._queue.task_done()
                 self._current_task = None
@@ -247,7 +305,47 @@ class BitrixImportQueue:
                 return {"imported": 0, "errors": 1}
             finally:
                 await db_manager.engine.dispose()
-    
+
+    async def _process_duplicate_check(self, task: 'DuplicateCheckTask') -> Dict[str, int]:
+        """
+        Обработка одной задачи проверки дублей
+
+        Args:
+            task: Задача проверки дублей
+
+        Returns:
+            Статистика проверки
+        """
+        # Создаём новую сессию для проверки (чтобы не блокировать основную)
+        from ...database.models import DatabaseManager
+
+        # Получаем путь к базе из конфига
+        config = get_config()
+        db_path = config.database_path
+
+        # Создаём временную сессию
+        db_manager = DatabaseManager(db_path)
+
+        async with db_manager.async_session_factory() as session:
+            try:
+                # Создаём checker и запускаем проверку
+                bitrix_client = get_bitrix24_client(config.bitrix24.webhook_url)
+                checker = DuplicateChecker(bitrix_client)
+
+                stats = await checker.check_leads_batch(session, task.lead_ids)
+
+                # Коммитим транзакцию
+                await session.commit()
+
+                return stats
+
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"❌ Ошибка проверки дублей: {type(e).__name__}: {e}")
+                return {"duplicates": 0, "unique": 0, "errors": 1}
+            finally:
+                await db_manager.engine.dispose()
+
     def get_stats(self) -> Dict[str, Any]:
         """
         Получение статистики очереди

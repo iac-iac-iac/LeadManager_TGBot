@@ -362,5 +362,5 @@ async def process_custom_reason(message: Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка ввода причины: {type(e).__name__}: {e}")
         await message.answer("⚠️ Ошибка. Попробуйте ещё раз или выберите из кнопок.")
-    
-    await message.answer()
+
+    # await message.answer()  # Удалено - не нужен пустой ответ

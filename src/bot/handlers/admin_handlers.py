@@ -41,7 +41,6 @@ from ..keyboards.keyboard_factory import (
 from ...database import crud
 from ...database.models import Lead, LeadStatus, User, UserStatus
 from ...bitrix24.client import Bitrix24Client
-from ...bitrix24.duplicates import run_duplicate_check
 from ...analytics.reports import get_analytics_report, ReportExporter
 from ...cleanup.cleanup_service import run_cleanup
 from ...config import get_config
@@ -67,13 +66,10 @@ async def handle_duplicate_check_menu(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "duplicate_run")
-async def handle_duplicate_run(callback: CallbackQuery, session: AsyncSession, bitrix24_client: Bitrix24Client):
-    """Запуск проверки на дубли"""
+async def handle_duplicate_run(callback: CallbackQuery, session: AsyncSession):
+    """Запуск проверки на дубли (в очереди)"""
     # СРАЗУ отвечаем на callback чтобы не истёк таймаут
-    await callback.answer("⏳ Запуск проверки на дубли...")
-
-    # Отправляем сообщение о запуске и запоминаем его ID
-    status_message = await callback.message.answer(DUPLICATE_CHECK_RUNNING)
+    await callback.answer("⏳ Проверка поставлена в очередь...")
 
     # Получаем все NEW лиды
     result = await session.execute(
@@ -82,33 +78,45 @@ async def handle_duplicate_run(callback: CallbackQuery, session: AsyncSession, b
     new_lead_ids = [row[0] for row in result.all()]
 
     if not new_lead_ids:
-        await status_message.edit_text("ℹ️ Нет новых лидов для проверки.")
+        await callback.message.answer("ℹ️ Нет новых лидов для проверки.")
         return
 
-    # Запускаем проверку с уведомлениями в Telegram
-    stats = await run_duplicate_check(
-        session,
-        bitrix24_client,
+    # Получаем очередь импорта из контекста
+    from ...bitrix24.import_queue import get_import_queue
+    import_queue = get_import_queue()
+    
+    # Создаём callback для уведомления о завершении
+    async def duplicate_complete_callback(stats: Dict[str, int]):
+        """Уведомление о завершении проверки"""
+        try:
+            await callback.bot.send_message(
+                chat_id=str(callback.from_user.id),
+                text=DUPLICATE_CHECK_RESULT.format(
+                    duplicates=stats.get('duplicates', 0),
+                    unique=stats.get('unique', 0),
+                    errors=stats.get('errors', 0)
+                ),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Ошибка уведомления о завершении проверки: {e}")
+    
+    # Добавляем в очередь
+    queued = await import_queue.add_duplicate_check(
         lead_ids=new_lead_ids,
-        bot=callback.bot,
-        admin_chat_id=str(callback.from_user.id)  # Отправляем тому кто запустил
+        callback=duplicate_complete_callback
     )
+    
+    if not queued:
+        await callback.message.answer("❌ Очередь переполнена, попробуйте позже")
+        return
 
-    await session.commit()
-
-    # Удаляем сообщение о запуске (если ещё не удалено)
-    try:
-        await status_message.delete()
-    except Exception:
-        pass
-
-    # Показываем результат
+    # Показываем сообщение о постановке в очередь
     await callback.message.answer(
-        DUPLICATE_CHECK_RESULT.format(
-            duplicates=stats.get('duplicates', 0),
-            unique=stats.get('unique', 0),
-            errors=stats.get('errors', 0)
-        )
+        f"✅ <b>Проверка дублей поставлена в очередь!</b>\n\n"
+        f"📊 Лидов на проверку: {len(new_lead_ids)}\n"
+        f"⏳ Вы получите уведомление когда проверка завершится.",
+        parse_mode="HTML"
     )
 
 
