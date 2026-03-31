@@ -263,52 +263,64 @@ class BitrixImportQueue:
         """
         # Создаём новую сессию для импорта (чтобы не блокировать основную)
         from ...database.models import DatabaseManager
-        import tempfile
-        import os
-        
+        import asyncio
+
         # Получаем путь к базе из конфига
         config = get_config()
         db_path = config.database_path
-        
-        # Создаём временную сессию
+
+        # Создаём временную сессию с retry логикой
         db_manager = DatabaseManager(db_path)
-        
-        async with db_manager.async_session_factory() as session:
+
+        for attempt in range(5):  # 5 попыток при блокировке
             try:
-                # Назначаем лиды менеджеру (если ещё не назначены)
-                await crud.assign_leads_to_manager(
-                    session,
-                    task.lead_ids,
-                    task.manager_id,
-                    loaded_by_admin=True
-                )
-                
-                # Получаем Bitrix24 клиента
-                bitrix_client = get_bitrix24_client(config.bitrix24.webhook_url)
-                
-                # Импортируем в Bitrix24
-                stats = await import_assigned_leads(
-                    session,
-                    bitrix_client,
-                    task.manager_id,
-                    task.bitrix_user_id
-                )
-                
-                # Коммитим транзакцию
-                await session.commit()
-                
-                return stats
-                
+                async with db_manager.async_session_factory() as session:
+                    try:
+                        # Назначаем лиды менеджеру (если ещё не назначены)
+                        await crud.assign_leads_to_manager(
+                            session,
+                            task.lead_ids,
+                            task.manager_id,
+                            loaded_by_admin=True
+                        )
+
+                        # Получаем Bitrix24 клиента
+                        bitrix_client = get_bitrix24_client(config.bitrix24.webhook_url)
+
+                        # Импортируем в Bitrix24
+                        stats = await import_assigned_leads(
+                            session,
+                            bitrix_client,
+                            task.manager_id,
+                            task.bitrix_user_id
+                        )
+
+                        # Коммитим транзакцию
+                        await session.commit()
+
+                        return stats
+
+                    except Exception as e:
+                        await session.rollback()
+                        raise e
+                    finally:
+                        await db_manager.engine.dispose()
+
             except Exception as e:
-                await session.rollback()
-                logger.error(f"❌ Ошибка импорта: {type(e).__name__}: {e}")
-                return {"imported": 0, "errors": 1}
-            finally:
-                await db_manager.engine.dispose()
+                if "database is locked" in str(e) and attempt < 4:
+                    wait_time = 0.5 * (2 ** attempt)  # 0.5с, 1с, 2с, 4с, 8с
+                    logger.warning(f"БД заблокирована, попытка {attempt+1}/5 через {wait_time}с")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Ошибка импорта: {type(e).__name__}: {e}")
+                    return {"imported": 0, "errors": 1}
+
+        return {"imported": 0, "errors": 1}
 
     async def _process_duplicate_check(self, task: 'DuplicateCheckTask') -> Dict[str, int]:
         """
         Обработка одной задачи проверки дублей
+        Используем retry логику при блокировке БД
 
         Args:
             task: Задача проверки дублей
@@ -318,33 +330,46 @@ class BitrixImportQueue:
         """
         # Создаём новую сессию для проверки (чтобы не блокировать основную)
         from ...database.models import DatabaseManager
+        import asyncio
 
         # Получаем путь к базе из конфига
         config = get_config()
         db_path = config.database_path
 
-        # Создаём временную сессию
+        # Создаём временную сессию с retry логикой
         db_manager = DatabaseManager(db_path)
 
-        async with db_manager.async_session_factory() as session:
+        for attempt in range(5):  # 5 попыток при блокировке
             try:
-                # Создаём checker и запускаем проверку
-                bitrix_client = get_bitrix24_client(config.bitrix24.webhook_url)
-                checker = DuplicateChecker(bitrix_client)
+                async with db_manager.async_session_factory() as session:
+                    try:
+                        # Создаём checker и запускаем проверку
+                        bitrix_client = get_bitrix24_client(config.bitrix24.webhook_url)
+                        checker = DuplicateChecker(bitrix_client)
 
-                stats = await checker.check_leads_batch(session, task.lead_ids)
+                        stats = await checker.check_leads_batch(session, task.lead_ids)
 
-                # Коммитим транзакцию
-                await session.commit()
+                        # Коммитим транзакцию
+                        await session.commit()
 
-                return stats
+                        return stats
+
+                    except Exception as e:
+                        await session.rollback()
+                        raise e
+                    finally:
+                        await db_manager.engine.dispose()
 
             except Exception as e:
-                await session.rollback()
-                logger.error(f"❌ Ошибка проверки дублей: {type(e).__name__}: {e}")
-                return {"duplicates": 0, "unique": 0, "errors": 1}
-            finally:
-                await db_manager.engine.dispose()
+                if "database is locked" in str(e) and attempt < 4:
+                    wait_time = 0.5 * (2 ** attempt)  # 0.5с, 1с, 2с, 4с, 8с
+                    logger.warning(f"БД заблокирована, попытка {attempt+1}/5 через {wait_time}с")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Ошибка проверки дублей: {type(e).__name__}: {e}")
+                    return {"duplicates": 0, "unique": 0, "errors": 1}
+
+        return {"duplicates": 0, "unique": 0, "errors": 1}
 
     def get_stats(self) -> Dict[str, Any]:
         """

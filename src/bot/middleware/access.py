@@ -87,7 +87,20 @@ class AccessMiddleware(BaseMiddleware):
 
                 # Проверяем, не изменилось ли имя (обновляем через CRUD функцию)
                 if user.full_name != full_name and full_name:
-                    await crud.update_user_name(session, telegram_id, full_name[:200])
+                    # Retry с exponential backoff при блокировке БД
+                    import asyncio
+                    for attempt in range(3):
+                        try:
+                            await crud.update_user_name(session, telegram_id, full_name[:200])
+                            break
+                        except Exception as e:
+                            if "database is locked" in str(e) and attempt < 2:
+                                wait_time = 0.1 * (2 ** attempt)  # 0.1с, 0.2с, 0.4с
+                                logger.debug(f"БД заблокирована, попытка {attempt+1}/3 через {wait_time}с")
+                                await asyncio.sleep(wait_time)
+                            else:
+                                logger.warning(f"Не удалось обновить имя: {e}")
+                                break
 
             # Проверяем админов по ID из конфига (только для superadmin доступа)
             if int(telegram_id) in self.admin_ids:
