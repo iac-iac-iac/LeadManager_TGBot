@@ -262,7 +262,7 @@ class BitrixImportQueue:
             Статистика импорта
         """
         # Создаём новую сессию для импорта (чтобы не блокировать основную)
-        from ...database.models import DatabaseManager
+        from src.database.models import DatabaseManager
         import asyncio
 
         # Получаем путь к базе из конфига
@@ -329,7 +329,7 @@ class BitrixImportQueue:
             Статистика проверки
         """
         # Создаём новую сессию для проверки (чтобы не блокировать основную)
-        from ...database.models import DatabaseManager
+        from src.database.models import DatabaseManager
         import asyncio
 
         # Получаем путь к базе из конфига
