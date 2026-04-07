@@ -48,6 +48,9 @@ class DeletePreviousMessageMiddleware(BaseMiddleware):
             "ticket_page:",
             "ticket_filter:",
             "stats_",
+            "load_leads_managers_page:",
+            "load_leads_segment_page:",
+            "load_bitrix_segment_page:",
         ]
         
         is_pagination = any(
