@@ -300,12 +300,15 @@ async def get_analytics_report(
     Args:
         session: Сессия БД
         period: 'today', 'week', 'month', 'all'
-        
+
     Returns:
         Dict с отчётом
     """
-    analytics = AnalyticsService(session)
+    from src.logger import get_logger
+    logger = get_logger(__name__)
     
+    analytics = AnalyticsService(session)
+
     # Определяем даты (используем timezone-aware datetime)
     now = datetime.now(timezone.utc)
 
@@ -326,16 +329,18 @@ async def get_analytics_report(
         )
         start_date = result.scalar() or now - timedelta(days=365)
         end_date = now
-    
+
+    logger.info(f"📊 Статистика за период '{period}': {start_date} → {end_date}")
+
     # Получаем общую статистику
     stats = await analytics.get_stats_for_period(start_date, end_date)
-    
+
     # По сегментам
     segment_stats = await analytics.get_stats_by_segment(start_date, end_date)
-    
+
     # По менеджерам
     manager_stats = await analytics.get_stats_by_manager(start_date, end_date)
-    
+
     return {
         'period': period,
         'start_date': start_date,

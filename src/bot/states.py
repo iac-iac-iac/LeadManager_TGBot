@@ -47,6 +47,10 @@ class AdminStates(StatesGroup):
     PENDING_USER_ACTION = State()  # Действие с заявкой
     APPROVE_USER_BITRIX_ID = State()  # Ввод Bitrix24 ID для подтверждения
 
+    # Рассылка
+    BROADCAST_INPUT_TEXT = State()  # Ввод текста рассылки
+    BROADCAST_CONFIRM = State()  # Подтверждение рассылки
+
 
 # =============================================================================
 # Общие состояния

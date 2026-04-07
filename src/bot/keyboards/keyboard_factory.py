@@ -16,7 +16,7 @@ from ..messages.texts import (
     BTN_NEXT, BTN_PREVIOUS,
     MANAGER_GET_LEADS, MANAGER_MY_STATS, MANAGER_ABOUT,
     ADMIN_IMPORT_CSV, ADMIN_DUPLICATE_CHECK, ADMIN_STATS,
-    ADMIN_EXPORT, ADMIN_SEGMENTS, ADMIN_CLEANUP, ADMIN_PENDING_USERS,
+    ADMIN_EXPORT, ADMIN_SEGMENTS, ADMIN_CLEANUP, ADMIN_PENDING_USERS, ADMIN_BROADCAST,
     DUPLICATE_CHECK_RUN,
     CLEANUP_LOGS, CLEANUP_DUPLICATES, CLEANUP_IMPORTED,
     SEGMENT_FREEZE, SEGMENT_UNFREEZE,
@@ -135,6 +135,7 @@ def create_admin_main_menu() -> InlineKeyboardMarkup:
     builder.button(text=BOT_CONTROL_BUTTON, callback_data="bot_control")
     builder.button(text=ADMIN_LOAD_LEADS_BUTTON, callback_data="admin_load_leads")
     builder.button(text=ADMIN_LOAD_LEADS_BITRIX_ID, callback_data="admin_load_leads_bitrix")
+    builder.button(text=ADMIN_BROADCAST, callback_data="admin_broadcast")
     builder.button(text=ADMIN_CLEANUP, callback_data="admin_cleanup")
     builder.button(text=ADMIN_PENDING_USERS, callback_data="admin_pending_users")
 
@@ -254,6 +255,15 @@ def create_back_keyboard(back_callback: str = "back_to_main") -> InlineKeyboardM
     else:
         builder.button(text=BTN_BACK, callback_data=back_callback)
 
+    return builder.as_markup()
+
+
+def create_broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения рассылки"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Отправить", callback_data="broadcast_confirm")
+    builder.button(text="❌ Отмена", callback_data="broadcast_cancel")
+    builder.adjust(2)
     return builder.as_markup()
 
 

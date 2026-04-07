@@ -111,30 +111,37 @@ async def managers_page(callback: CallbackQuery, state: FSMContext):
     try:
         parsed = callback.data.split(":")
         new_page = int(parsed[1])
-        
+
         # Получаем данные из состояния
         state_data = await state.get_data()
         managers = state_data.get("managers_list", [])
-        
+
         if not managers:
             await callback.answer("⚠️ Список менеджеров не найден", show_alert=True)
             return
-        
+
         # Обновляем страницу
         await state.update_data(current_page=new_page)
-        
-        # Показываем новую страницу
+
+        # Показываем новую страницу (edit_text чтобы не удалять сообщение)
         keyboard = create_managers_list_keyboard(managers, page=new_page, page_size=10)
-        
-        await callback.message.edit_text(
-            ADMIN_LOAD_LEADS_SELECT_MANAGER,
-            reply_markup=keyboard
-        )
-        
+
+        try:
+            await callback.message.edit_text(
+                ADMIN_LOAD_LEADS_SELECT_MANAGER,
+                reply_markup=keyboard
+            )
+        except Exception:
+            # Если edit не удался, отправляем новое сообщение
+            await callback.message.answer(
+                ADMIN_LOAD_LEADS_SELECT_MANAGER,
+                reply_markup=keyboard
+            )
+
     except Exception as e:
         logger.error(f"Ошибка пагинации менеджеров: {type(e).__name__}: {e}")
         await callback.answer("⚠️ Ошибка", show_alert=True)
-    
+
     await callback.answer()
 
 
