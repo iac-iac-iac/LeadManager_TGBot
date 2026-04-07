@@ -979,15 +979,28 @@ async def handle_bitrix_segment_select(callback: CallbackQuery, state: FSMContex
 
         logger.info(f"Выбран сегмент: {segment_name}, индекс: {segment_index}, города: {cities}")
 
+        # Проверяем, это "Прочее" сегмент
+        is_other_regular = "Прочее (Обыч.)" in segment_name
+        is_other_plusoviki = "Прочее (Плюсовики)" in segment_name
+        is_other = is_other_regular or is_other_plusoviki
+
         if not cities:
             # Нет городов - сразу к количеству
             await state.update_data(selected_city=None)
             await state.set_state(AdminLoadLeadsBitrixStates.ENTER_COUNT)
 
             # Проверяем доступное количество
-            available_count = await crud.count_available_leads_for_assignment(
-                session, segment_name, city=None
-            )
+            if is_other:
+                other_type = "regular" if is_other_regular else "plusoviki"
+                available_count = await crud.count_other_leads(
+                    session, other_type=other_type
+                )
+                # Сохраняем тип "Прочее" для последующего получения лидов
+                await state.update_data(is_other=True, other_type=other_type)
+            else:
+                available_count = await crud.count_available_leads_for_assignment(
+                    session, segment_name, city=None
+                )
 
             # Получаем back_callback из состояния
             state_data = await state.get_data()
@@ -1245,9 +1258,18 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
             return
         
         # Получаем доступные лиды
-        leads = await crud.get_available_leads_for_assignment(
-            session, segment, city=city, limit=count
-        )
+        is_other = state_data.get("is_other", False)
+        other_type = state_data.get("other_type", "regular")
+
+        if is_other:
+            # Для "Прочее" используем специальную функцию
+            leads = await crud.get_other_leads_for_assignment(
+                session, other_type=other_type, limit=count
+            )
+        else:
+            leads = await crud.get_available_leads_for_assignment(
+                session, segment, city=city, limit=count
+            )
         
         if not leads:
             await target.answer(
