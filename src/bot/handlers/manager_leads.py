@@ -284,6 +284,11 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
     # Сохраняем город в состоянии
     await state.update_data(selected_city=city, selected_segment=segment)
 
+    # Проверяем, это "Прочие" город
+    is_other_regular = "Прочие (Обыч.)" in city
+    is_other_plusoviki = "Прочие (Плюсовики)" in city
+    is_other = is_other_regular or is_other_plusoviki
+
     # Удаляем предыдущее сообщение
     try:
         await callback.message.delete()
@@ -291,7 +296,16 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
         pass  # Сообщение уже удалено
 
     # Проверяем доступное количество
-    available_count = await crud.count_available_leads(session, segment, city)
+    if is_other:
+        other_type = "regular" if is_other_regular else "plusoviki"
+        available_count = await crud.count_other_leads(
+            session, other_type=other_type, segment=segment
+        )
+        logger.info(f"Менеджер: Прочие other_type={other_type}, segment={segment}, count={available_count}")
+        await state.update_data(is_other=True, other_type=other_type)
+    else:
+        available_count = await crud.count_available_leads(session, segment, city)
+        await state.update_data(is_other=False, other_type=None)
 
     # Запрашиваем количество
     await state.set_state(ManagerStates.LEADS_COUNT)
@@ -353,6 +367,8 @@ async def handle_lead_count_input(message: Message, state: FSMContext, session: 
     data = await state.get_data()
     segment = data.get("selected_segment")
     city = data.get("selected_city")
+    is_other = data.get("is_other", False)
+    other_type = data.get("other_type", "regular")
 
     if not segment:
         await message.answer("⚠️ Ошибка: сегмент не выбран")
@@ -360,7 +376,12 @@ async def handle_lead_count_input(message: Message, state: FSMContext, session: 
         return
 
     # Проверяем доступное количество
-    available_count = await crud.count_available_leads(session, segment, city)
+    if is_other:
+        available_count = await crud.count_other_leads(
+            session, other_type=other_type, segment=segment
+        )
+    else:
+        available_count = await crud.count_available_leads(session, segment, city)
 
     if available_count == 0:
         await message.answer(
@@ -530,13 +551,23 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         return
 
     # Получаем доступные лиды
-    leads = await crud.get_available_leads(
-        session,
-        segment,
-        city,
-        limit=count,
-        exclude_telegram_id=telegram_id
-    )
+    is_other = data.get("is_other", False)
+    other_type = data.get("other_type", "regular")
+
+    if is_other:
+        leads = await crud.get_other_leads_for_assignment(
+            session,
+            other_type=other_type,
+            limit=count,
+        )
+    else:
+        leads = await crud.get_available_leads(
+            session,
+            segment,
+            city,
+            limit=count,
+            exclude_telegram_id=telegram_id
+        )
 
     if not leads:
         try:
