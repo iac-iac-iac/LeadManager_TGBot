@@ -971,6 +971,7 @@ async def get_segments_with_cities(
     segment_total_counts = {}
 
     for segment, city, count in result.all():
+        logger.info(f"  Сегмент '{segment}', город '{city or ''}': {count} лидов")
         if segment not in segment_city_counts:
             segment_city_counts[segment] = {}
             segment_total_counts[segment] = 0
@@ -1089,6 +1090,7 @@ async def _get_other_segments(
     segment_total_counts = {}
 
     for segment, city, count in result.all():
+        logger.info(f"  Сегмент '{segment}', город '{city or ''}': {count} лидов")
         if segment not in segment_city_counts:
             segment_city_counts[segment] = {}
             segment_total_counts[segment] = 0
