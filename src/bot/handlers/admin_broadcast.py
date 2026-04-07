@@ -5,8 +5,10 @@
 """
 import asyncio
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
+from aiogram.filters.state import StateFilter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..states import AdminStates
@@ -77,8 +79,8 @@ async def handle_broadcast_input(message: Message, state: FSMContext, session: A
             message_text=text[:200] + ("..." if len(text) > 200 else ""),
             user_count=user_count
         ),
-        reply_markup=builder.as_markdown(),
-        parse_mode="MarkdownV2"
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
     )
 
 
@@ -155,3 +157,14 @@ async def handle_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
     
     await state.clear()
     await callback.answer()
+
+
+@router.message(StateFilter(AdminStates.BROADCAST_INPUT_TEXT, AdminStates.BROADCAST_CONFIRM), Command("cancel"))
+async def handle_broadcast_cancel_command(message: Message, state: FSMContext):
+    """Отмена рассылки командой /cancel"""
+    await message.answer(
+        BROADCAST_CANCELLED,
+        reply_markup=create_back_keyboard("admin_menu")
+    )
+    
+    await state.clear()
