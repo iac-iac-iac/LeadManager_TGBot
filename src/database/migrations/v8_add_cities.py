@@ -22,8 +22,6 @@ async def migrate_v8(session: AsyncSession, City, Lead, LeadStatus):
     Создаёт таблицы cities и pending_cities,
     мигрирует существующие города из Lead.city
     """
-    from ..models import City, Lead, LeadStatus
-
     print("🔄 Миграция v8: Таблицы городов")
 
     # Таблицы уже созданы через Base.metadata.create_all()
