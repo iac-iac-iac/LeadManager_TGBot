@@ -619,7 +619,7 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
         if is_other:
             # Для "Прочее" используем специальную функцию
             leads = await crud.get_other_leads_for_assignment(
-                session, other_type=other_type, limit=count
+                session, other_type=other_type, segment=segment, limit=count
             )
         else:
             leads = await crud.get_available_leads_for_assignment(
@@ -1309,7 +1309,7 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
         if is_other:
             # Для "Прочее" используем специальную функцию
             leads = await crud.get_other_leads_for_assignment(
-                session, other_type=other_type, limit=count
+                session, other_type=other_type, segment=segment, limit=count
             )
         else:
             leads = await crud.get_available_leads_for_assignment(

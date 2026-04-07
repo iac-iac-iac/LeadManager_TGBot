@@ -572,6 +572,7 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         leads = await crud.get_other_leads_for_assignment(
             session,
             other_type=other_type,
+            segment=segment,
             limit=count,
         )
     else:
