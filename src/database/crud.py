@@ -152,6 +152,12 @@ async def count_available_leads(
     return result.scalar() or 0
 
 
+async def count_pending_cities(session):
+    """Количество pending городов"""
+    result = await session.execute(select(func.count(PendingCity.id)))
+    return result.scalar() or 0
+
+
 async def update_lead_status(
     session: AsyncSession,
     lead_id: int,
