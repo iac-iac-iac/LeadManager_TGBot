@@ -20,6 +20,12 @@ from ..messages.texts import (
 )
 from ..keyboards.keyboard_factory import create_back_keyboard
 from ...database import crud
+from ...database.city_crud import (
+    count_pending_cities,
+    get_pending_cities,
+    approve_pending_city,
+    reject_pending_city,
+)
 from ...logger import get_logger
 
 logger = get_logger(__name__)
@@ -77,7 +83,7 @@ CITY_NOT_FOUND = """
 @router.callback_query(F.data == "admin_pending_cities")
 async def handle_pending_cities_menu(callback: CallbackQuery, session: AsyncSession):
     """Меню pending городов"""
-    pending_count = await crud.count_pending_cities(session)
+    pending_count = await count_pending_cities(session)
 
     await callback.message.answer(
         PENDING_CITIES_MENU.format(pending_count=pending_count),
@@ -104,7 +110,7 @@ async def handle_city_reject(message: Message, session: AsyncSession):
 
     city_name = match.group(1).strip()
 
-    result = await crud.reject_pending_city(session, city_name)
+    result = await reject_pending_city(session, city_name)
     await session.commit()
 
     await message.answer(
@@ -141,7 +147,7 @@ async def handle_city_approve(message: Message, session: AsyncSession):
         return
 
     # Проверяем, есть ли такой pending город
-    pending_cities = await crud.get_pending_cities(session)
+    pending_cities = await get_pending_cities(session)
     pending_names = [c.name.lower() for c in pending_cities]
 
     # Ищем точное совпадение или частичное
@@ -175,7 +181,7 @@ async def handle_city_approve(message: Message, session: AsyncSession):
         return
 
     # Одобряем город
-    result = await crud.approve_pending_city(session, found_city, utc_offset)
+    result = await approve_pending_city(session, found_city, utc_offset)
     await session.commit()
 
     await message.answer(
