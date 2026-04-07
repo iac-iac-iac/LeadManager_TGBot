@@ -428,14 +428,17 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
         # Проверяем доступное количество
         if is_other:
             other_type = "regular" if is_other_regular else "plusoviki"
+            logger.info(f"Выбран 'Прочие': other_type={other_type}, selected_city={selected_city}")
             available_count = await crud.count_other_leads(
                 session, other_type=other_type
             )
+            logger.info(f"count_other_leads вернул: {available_count}")
             await state.update_data(is_other=True, other_type=other_type)
         else:
             available_count = await crud.count_available_leads_for_assignment(
                 session, segment_name, city=selected_city
             )
+            logger.info(f"count_available_leads_for_assignment вернул: {available_count}")
         
         await callback.message.answer(
             f"📊 Доступно лидов: {available_count}\n\n"
@@ -1113,14 +1116,17 @@ async def handle_bitrix_city_select(callback: CallbackQuery, state: FSMContext, 
         # Проверяем доступное количество
         if is_other:
             other_type = "regular" if is_other_regular else "plusoviki"
+            logger.info(f"Выбран 'Прочие': other_type={other_type}, selected_city={selected_city}")
             available_count = await crud.count_other_leads(
                 session, other_type=other_type
             )
+            logger.info(f"count_other_leads вернул: {available_count}")
             await state.update_data(is_other=True, other_type=other_type)
         else:
             available_count = await crud.count_available_leads_for_assignment(
                 session, segment_name, city=selected_city
             )
+            logger.info(f"count_available_leads_for_assignment вернул: {available_count}")
         
         # Получаем back_callback из состояния
         state_data = await state.get_data()

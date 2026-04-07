@@ -161,24 +161,55 @@ async def count_other_leads(
     tail_threshold: int = 10,
     plusoviki_threshold: int = 3
 ) -> int:
-    """Подсчёт лидов в категории 'Прочее'"""
+    """Подсчёт лидов в категории 'Прочее' (города < 10 лидов внутри сегментов)"""
+    # Получаем все города с UTC
+    all_cities_result = await session.execute(select(City))
+    city_utc = {c.name: c.utc_offset for c in all_cities_result.scalars().all()}
+
+    # Считаем лиды по сегмент+город
     leads_count_query = select(
-        Lead.segment, func.count(Lead.id).label('cnt')
+        Lead.segment, Lead.city, func.count(Lead.id).label('cnt')
     ).where(
         Lead.status == LeadStatus.UNIQUE
-    ).group_by(Lead.segment)
+    ).group_by(Lead.segment, Lead.city)
 
     result = await session.execute(leads_count_query)
     total = 0
 
-    for segment, count in result.all():
-        if count < tail_threshold:
-            utc = 0
-            if other_type == "plusoviki" and utc >= plusoviki_threshold:
-                total += count
-            elif other_type == "regular" and utc < plusoviki_threshold:
-                total += count
+    # Сначала считаем тоталы по сегментам
+    segment_city_counts = {}
+    segment_total_counts = {}
 
+    for segment, city, count in result.all():
+        if segment not in segment_city_counts:
+            segment_city_counts[segment] = {}
+            segment_total_counts[segment] = 0
+        segment_city_counts[segment][city or ""] = count
+        segment_total_counts[segment] += count
+
+    # Теперь считаем "Прочие" только для сегментов >= tail_threshold
+    for segment, city_counts in segment_city_counts.items():
+        seg_total = segment_total_counts.get(segment, 0)
+        if seg_total >= tail_threshold:
+            # Сегмент большой, считаем только малые города
+            for city_name, count in city_counts.items():
+                if count < tail_threshold:
+                    utc = city_utc.get(city_name, 0)
+                    if other_type == "plusoviki" and utc >= plusoviki_threshold:
+                        total += count
+                    elif other_type == "regular" and utc < plusoviki_threshold:
+                        total += count
+        else:
+            # Сегмент малый — весь в "Прочее"
+            # Определяем UTC по первому городу
+            first_city = next(iter(city_counts.keys()), "")
+            utc = city_utc.get(first_city, 0) if first_city else 0
+            if other_type == "plusoviki" and utc >= plusoviki_threshold:
+                total += seg_total
+            elif other_type == "regular" and utc < plusoviki_threshold:
+                total += seg_total
+
+    logger.info(f"count_other_leads: other_type={other_type}, total={total}")
     return total
 
 
@@ -189,30 +220,72 @@ async def get_other_leads_for_assignment(
     tail_threshold: int = 10,
     plusoviki_threshold: int = 3
 ) -> List[Lead]:
-    """Получение лидов из категории 'Прочее'"""
+    """Получение лидов из категории 'Прочее' (города < 10 лидов)"""
+    # Получаем все города с UTC
+    all_cities_result = await session.execute(select(City))
+    city_utc = {c.name: c.utc_offset for c in all_cities_result.scalars().all()}
+
+    # Считаем лиды по сегмент+город
     leads_count_query = select(
-        Lead.segment, func.count(Lead.id).label('cnt')
+        Lead.segment, Lead.city, func.count(Lead.id).label('cnt')
     ).where(
         Lead.status == LeadStatus.UNIQUE
-    ).group_by(Lead.segment)
+    ).group_by(Lead.segment, Lead.city)
 
     result = await session.execute(leads_count_query)
-    small_segments = []
+    target_cities = []  # (segment, city) tuples
 
-    for segment, count in result.all():
-        if count < tail_threshold:
-            utc = 0
+    # Сначала считаем тоталы по сегментам
+    segment_city_counts = {}
+    segment_total_counts = {}
+
+    for segment, city, count in result.all():
+        if segment not in segment_city_counts:
+            segment_city_counts[segment] = {}
+            segment_total_counts[segment] = 0
+        segment_city_counts[segment][city or ""] = count
+        segment_total_counts[segment] += count
+
+    # Теперь находим целевые города
+    for segment, city_counts in segment_city_counts.items():
+        seg_total = segment_total_counts.get(segment, 0)
+        if seg_total >= tail_threshold:
+            # Сегмент большой, берём только малые города
+            for city_name, count in city_counts.items():
+                if count < tail_threshold:
+                    utc = city_utc.get(city_name, 0)
+                    if other_type == "plusoviki" and utc >= plusoviki_threshold:
+                        target_cities.append((segment, city_name if city_name else None))
+                    elif other_type == "regular" and utc < plusoviki_threshold:
+                        target_cities.append((segment, city_name if city_name else None))
+        else:
+            # Сегмент малый — весь в "Прочее"
+            first_city = next(iter(city_counts.keys()), "")
+            utc = city_utc.get(first_city, 0) if first_city else 0
             if other_type == "plusoviki" and utc >= plusoviki_threshold:
-                small_segments.append(segment)
+                for city_name in city_counts.keys():
+                    target_cities.append((segment, city_name if city_name else None))
             elif other_type == "regular" and utc < plusoviki_threshold:
-                small_segments.append(segment)
+                for city_name in city_counts.keys():
+                    target_cities.append((segment, city_name if city_name else None))
 
-    if not small_segments:
+    if not target_cities:
+        return []
+
+    # Строим запрос для получения лидов
+    conditions = []
+    for segment, city in target_cities:
+        if city is None:
+            conditions.append((Lead.segment == segment) & (Lead.city.is_(None)))
+        else:
+            conditions.append((Lead.segment == segment) & (Lead.city == city))
+
+    if not conditions:
         return []
 
     query = select(Lead).where(
-        Lead.status == LeadStatus.UNIQUE,
-        Lead.segment.in_(small_segments)
+        or_(*conditions),
+        Lead.status == LeadStatus.UNIQUE
     ).order_by(Lead.created_at).limit(limit)
 
     result = await session.execute(query)
