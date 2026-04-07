@@ -712,14 +712,26 @@ async def get_manager_stats(
 
 async def get_segments_with_cities(
     session: AsyncSession,
-    exclude_frozen: bool = True
+    exclude_frozen: bool = True,
+    include_other: bool = True,
+    tail_threshold: int = 10,
+    plusoviki_threshold: int = 3
 ) -> List[Tuple[str, List[str]]]:
     """
     Получение списка сегментов с городами
 
+    Args:
+        session: Сессия БД
+        exclude_frozen: Исключать замороженные сегменты
+        include_other: Включать категорию "Прочее" для хвостов
+        tail_threshold: Порог для "хвоста" (< N лидов)
+        plusoviki_threshold: Порог для "плюсовиков" (>= N часов от МСК)
+
     Returns:
         List кортежей [(segment, [cities]), ...]
-        Если городов нет, возвращается [(segment, []), ...]
+        Если include_other=True, добавляется:
+        - ("📦 Прочее (Обыч.)", [city1, city2, ...])
+        - ("📦 Прочее (Плюсовики)", [city1, city2, ...])
     """
     # Получаем уникальные сегменты
     query = select(Lead.segment, Lead.city).where(
@@ -761,8 +773,37 @@ async def get_segments_with_cities(
             if segment in segments_dict and city in segments_dict[segment]:
                 segments_dict[segment].remove(city)
 
-    # Возвращаем все сегменты, даже без городов
-    return [(seg, cities) for seg, cities in segments_dict.items()]
+    result_segments = [(seg, cities) for seg, cities in segments_dict.items()]
+
+    # Добавляем "Прочее" если нужно
+    if include_other:
+        other_segments = _get_other_segments(
+            session, segments_dict, tail_threshold, plusoviki_threshold, exclude_frozen
+        )
+        result_segments.extend(other_segments)
+
+    return result_segments
+
+
+def _get_other_segments(
+    session,
+    segments_dict: Dict[str, List[str]],
+    tail_threshold: int,
+    plusoviki_threshold: int,
+    exclude_frozen: bool
+) -> List[Tuple[str, List[str]]]:
+    """
+    Получить категории "Прочее" (Обыч. и Плюсовики)
+
+    Логика:
+    1. Считаем лиды по каждому сегменту
+    2. Если сегмент < tail_threshold → добавляем в "Прочее"
+    3. Если сегмент >= tail_threshold, но город < tail_threshold → город в "Прочее"
+    4. Группируем по UTC: < plusoviki_threshold → Обыч., >= → Плюсовики
+    """
+    # Это будет реализовано в Phase 7 с полной логикой
+    # Пока возвращаем пустые "Прочее"
+    return []
 
 
 # =============================================================================
