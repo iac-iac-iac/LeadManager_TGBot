@@ -931,7 +931,7 @@ async def get_segments_with_cities(
 
     # Добавляем "Прочее" если нужно
     if include_other:
-        other_segments = _get_other_segments(
+        other_segments = await _get_other_segments(
             session, segments_dict, tail_threshold, plusoviki_threshold, exclude_frozen
         )
         result_segments.extend(other_segments)
@@ -939,7 +939,7 @@ async def get_segments_with_cities(
     return result_segments
 
 
-def _get_other_segments(
+async def _get_other_segments(
     session,
     segments_dict: Dict[str, List[str]],
     tail_threshold: int,
@@ -958,8 +958,8 @@ def _get_other_segments(
     from sqlalchemy import func as sql_func
 
     # Получаем все города с их UTC
-    all_cities_result = session.execute(select(City)).scalars().all()
-    city_utc = {c.name: c.utc_offset for c in all_cities_result}
+    all_cities_result = await session.execute(select(City))
+    city_utc = {c.name: c.utc_offset for c in all_cities_result.scalars().all()}
 
     # Считаем лиды по сегмент+город
     leads_count_query = select(
@@ -968,7 +968,7 @@ def _get_other_segments(
         Lead.status == LeadStatus.UNIQUE
     ).group_by(Lead.segment, Lead.city)
 
-    result = session.execute(leads_count_query)
+    result = await session.execute(leads_count_query)
     segment_city_counts = {}
     segment_total_counts = {}
 
