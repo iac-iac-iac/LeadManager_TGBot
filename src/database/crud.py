@@ -796,14 +796,72 @@ def _get_other_segments(
     Получить категории "Прочее" (Обыч. и Плюсовики)
 
     Логика:
-    1. Считаем лиды по каждому сегменту
-    2. Если сегмент < tail_threshold → добавляем в "Прочее"
+    1. Для каждого сегмента считаем лиды
+    2. Если сегмент < tail_threshold → весь в "Прочее"
     3. Если сегмент >= tail_threshold, но город < tail_threshold → город в "Прочее"
     4. Группируем по UTC: < plusoviki_threshold → Обыч., >= → Плюсовики
     """
-    # Это будет реализовано в Phase 7 с полной логикой
-    # Пока возвращаем пустые "Прочее"
-    return []
+    from sqlalchemy import func as sql_func
+
+    # Получаем все города с их UTC
+    all_cities_result = session.execute(select(City)).scalars().all()
+    city_utc = {c.name: c.utc_offset for c in all_cities_result}
+
+    # Считаем лиды по сегмент+город
+    leads_count_query = select(
+        Lead.segment, Lead.city, sql_func.count(Lead.id).label('cnt')
+    ).where(
+        Lead.status == LeadStatus.UNIQUE
+    ).group_by(Lead.segment, Lead.city)
+
+    result = session.execute(leads_count_query)
+    segment_city_counts = {}
+    segment_total_counts = {}
+
+    for segment, city, count in result.all():
+        if segment not in segment_city_counts:
+            segment_city_counts[segment] = {}
+            segment_total_counts[segment] = 0
+        segment_city_counts[segment][city or ""] = count
+        segment_total_counts[segment] += count
+
+    other_regular = {}  # city_name -> segment_name
+    other_plusoviki = {}
+
+    for segment, city_counts in segment_city_counts.items():
+        total = segment_total_counts.get(segment, 0)
+
+        if total < tail_threshold:
+            # Весь сегмент в "Прочее"
+            for city_name in city_counts.keys():
+                utc = city_utc.get(city_name, 0)
+                if utc >= plusoviki_threshold:
+                    other_plusoviki[city_name] = segment
+                else:
+                    other_regular[city_name] = segment
+        else:
+            # Сегмент большой, но города могут быть хвостами
+            for city_name, count in city_counts.items():
+                if count < tail_threshold:
+                    utc = city_utc.get(city_name, 0)
+                    if utc >= plusoviki_threshold:
+                        other_plusoviki[city_name] = segment
+                    else:
+                        other_regular[city_name] = segment
+
+    result_segments = []
+
+    if other_regular:
+        cities_list = list(other_regular.keys())
+        count = len(other_regular)
+        result_segments.append((f"📦 Прочее (Обыч.) — {count}", cities_list))
+
+    if other_plusoviki:
+        cities_list = list(other_plusoviki.keys())
+        count = len(other_plusoviki)
+        result_segments.append((f"📦 Прочее (Плюсовики) — {count}", cities_list))
+
+    return result_segments
 
 
 # =============================================================================
