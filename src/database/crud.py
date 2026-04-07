@@ -1137,10 +1137,10 @@ async def get_segments_with_cities(
     # Добавляем "Прочее" категории
     if include_other:
         if other_regular_leads > 0:
-            result_segments.append((f"📦 Прочее (Обыч.) — {other_regular_leads} лидов", []))
+            result_segments.append((f"📦 Прочее (Обыч.)", []))
             logger.info(f"  Добавлено 'Прочее (Обыч.)': {other_regular_leads} лидов")
         if other_plusoviki_leads > 0:
-            result_segments.append((f"📦 Прочее (Плюсовики) — {other_plusoviki_leads} лидов", []))
+            result_segments.append((f"📦 Прочее (Плюсовики)", []))
             logger.info(f"  Добавлено 'Прочее (Плюсовики)': {other_plusoviki_leads} лидов")
 
     logger.info(f"get_segments_with_cities: итого {len(result_segments)} сегментов")
