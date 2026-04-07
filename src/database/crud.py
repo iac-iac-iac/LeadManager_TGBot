@@ -1004,8 +1004,11 @@ async def get_segments_with_cities(
     other_regular_leads = 0  # Счётчик лидов в Обыч
     other_plusoviki_leads = 0  # Счётчик лидов в Плюсовики
 
+    logger.info(f"get_segments_with_cities: сегментов={len(segment_city_counts)}, tail_threshold={tail_threshold}")
+
     for segment, city_counts in segment_city_counts.items():
         total = segment_total_counts.get(segment, 0)
+        logger.info(f"  Сегмент '{segment}': {total} лидов, города={list(city_counts.keys())}")
 
         if total < tail_threshold:
             # Весь сегмент < 10 → в "Прочее"
@@ -1031,16 +1034,21 @@ async def get_segments_with_cities(
 
             if small_cities_count > 0:
                 visible_cities.append(f"📦 Прочие ({small_cities_leads})")
+                logger.info(f"    Добавлены 'Прочие' для сегмента '{segment}': {small_cities_leads} лидов из {small_cities_count} городов")
 
             result_segments.append((segment, visible_cities))
+            logger.info(f"    Сегмент '{segment}' добавлен с городами: {visible_cities}")
 
     # Добавляем "Прочее" категории
     if include_other:
         if other_regular_leads > 0:
             result_segments.append((f"📦 Прочее (Обыч.)", []))
+            logger.info(f"  Добавлено 'Прочее (Обыч.)': {other_regular_leads} лидов")
         if other_plusoviki_leads > 0:
             result_segments.append((f"📦 Прочее (Плюсовики)", []))
+            logger.info(f"  Добавлено 'Прочее (Плюсовики)': {other_plusoviki_leads} лидов")
 
+    logger.info(f"get_segments_with_cities: итого {len(result_segments)} сегментов")
     return result_segments
 
 
@@ -1655,24 +1663,16 @@ async def count_available_leads_for_assignment(
     segment: str,
     city: Optional[str] = None
 ) -> int:
-    """
-    Подсчёт доступных лидов для загрузки
-
-    Args:
-        session: Сессия БД
-        segment: Сегмент лидов
-        city: Город (опционально)
-
-    Returns:
-        Количество доступных лидов
-    """
+    """Подсчёт доступных лидов для загрузки"""
     query = select(func.count(Lead.id)).where(
         Lead.status == LeadStatus.UNIQUE,
         Lead.segment == segment
     )
-    
+
     if city:
         query = query.where(Lead.city == city)
-    
+
     result = await session.execute(query)
-    return result.scalar() or 0
+    count = result.scalar() or 0
+    logger.info(f"count_available_leads_for_assignment: segment={segment}, city={city}, count={count}")
+    return count
