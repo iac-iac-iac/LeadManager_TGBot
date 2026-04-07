@@ -183,17 +183,21 @@ _logger: logging.Logger = None
 def get_logger(name: str = None) -> logging.Logger:
     """
     Получение логгера по имени
-    
+
     Args:
         name: Имя логгера (опционально)
-        
+
     Returns:
         Логгер
     """
     global _logger
     if _logger is None:
         _logger = setup_logger()
-    
+
     if name:
-        return logging.getLogger(name)
+        child = logging.getLogger(f"lead_telegram.{name}")
+        # Убедимся что child наследует handlers от родителя
+        if not child.handlers:
+            child.setLevel(_logger.level)
+        return child
     return _logger
