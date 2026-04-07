@@ -140,9 +140,10 @@ async def managers_page(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка пагинации менеджеров: {type(e).__name__}: {e}")
-        await callback.answer("⚠️ Ошибка", show_alert=True)
-
-    await callback.answer()
+        try:
+            await callback.answer("⚠️ Ошибка", show_alert=True)
+        except Exception:
+            pass
 
 
 # =============================================================================
@@ -190,17 +191,24 @@ async def handle_manager_select(callback: CallbackQuery, state: FSMContext, sess
         
         # Показываем сегменты
         keyboard = create_segments_load_keyboard(segments, page=0, page_size=10)
-        
+
         await callback.message.answer(
-            ADMIN_LOAD_LEADS_SELECT_SEGMENT,
-            reply_markup=keyboard
+        ADMIN_LOAD_LEADS_SELECT_SEGMENT,
+        reply_markup=keyboard
         )
-        
+
+            # Отвечаем на callback
+        try:
+            await callback.answer()
+        except Exception:
+            pass
+
     except Exception as e:
         logger.error(f"Ошибка выбора менеджера: {type(e).__name__}: {e}")
-        await callback.answer("⚠️ Ошибка", show_alert=True)
-
-    await callback.answer()
+        try:
+            await callback.answer("⚠️ Ошибка", show_alert=True)
+        except Exception:
+            pass
 
 
 # =============================================================================
