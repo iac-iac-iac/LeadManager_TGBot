@@ -367,12 +367,11 @@ async def initialize_database(db_manager: DatabaseManager):
     
     # Применяем миграцию v8 отдельно (нужна сессия, не conn)
     async with db_manager.async_session_factory() as session:
-        from .migrations.v8_add_cities import migrate_v8
         current_version = await session.execute(text("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"))
         current = current_version.scalar() or 0
         
         if current < 8:
-            await migrate_v8(session)
+            await _v8_module.migrate_v8(session)
             await session.commit()
     
     # Проверяем статус миграций
