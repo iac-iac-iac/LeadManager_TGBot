@@ -340,6 +340,15 @@ async def handle_lead_count_input(message: Message, state: FSMContext, session: 
         )
         return
 
+    # Проверка минимума 10 лидов
+    if count < 10:
+        await message.answer(
+            "❌ Минимальное количество для загрузки: 10 лидов.\n"
+            f"Введите число от 10 до 200.",
+            reply_markup=create_back_keyboard("leads_menu")
+        )
+        return
+
     # Получаем данные из FSM
     data = await state.get_data()
     segment = data.get("selected_segment")
@@ -363,9 +372,15 @@ async def handle_lead_count_input(message: Message, state: FSMContext, session: 
         return
 
     if count > available_count:
-        await _show_not_enough_leads(
-            message, state, available_count, count
-        )
+        # Если доступно меньше 10, можно взять всё (исключение для "Прочее")
+        if available_count < 10:
+            await _show_not_enough_leads(
+                message, state, available_count, count, allow_take_all=True
+            )
+        else:
+            await _show_not_enough_leads(
+                message, state, available_count, count
+            )
         return
 
     # Достаточно лидов - показываем подтверждение
@@ -395,7 +410,8 @@ async def _show_not_enough_leads(
     message: Message,
     state: FSMContext,
     available_count: int,
-    requested_count: int
+    requested_count: int,
+    allow_take_all: bool = False
 ) -> None:
     """
     Показ сообщения о недостаточном количестве лидов
@@ -405,19 +421,34 @@ async def _show_not_enough_leads(
         state: FSM состояние
         available_count: Доступное количество
         requested_count: Запрошенное количество
+        allow_take_all: Можно ли взять всё доступное (для "Прочее")
     """
-    keyboard = create_confirmation_keyboard(
-        confirm_callback=f"confirm_leads:{available_count}",
-        cancel_callback="cancel_leads"
-    )
+    if allow_take_all:
+        # Для "Прочее" — можно взять всё даже если < 10
+        keyboard = create_confirmation_keyboard(
+            confirm_callback=f"confirm_leads:{available_count}",
+            cancel_callback="cancel_leads"
+        )
 
-    await message.answer(
-        LEADS_NOT_ENOUGH.format(
-            available=available_count,
-            requested=requested_count
-        ),
-        reply_markup=keyboard
-    )
+        await message.answer(
+            f"⚠️ Доступно только {available_count} лидов.\n"
+            f"Введите количество (минимум 10, но для 'Прочее' можно взять всё):\n\n"
+            f"Или нажмите '✅ Да, взять {available_count}'",
+            reply_markup=keyboard
+        )
+    else:
+        keyboard = create_confirmation_keyboard(
+            confirm_callback=f"confirm_leads:{available_count}",
+            cancel_callback="cancel_leads"
+        )
+
+        await message.answer(
+            LEADS_NOT_ENOUGH.format(
+                available=available_count,
+                requested=requested_count
+            ),
+            reply_markup=keyboard
+        )
 
     # Сохраняем запрошенное количество
     await state.update_data(requested_count=requested_count)
