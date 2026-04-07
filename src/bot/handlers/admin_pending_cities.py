@@ -95,10 +95,10 @@ async def handle_broadcast_messages(message: Message, state: FSMContext):
     pass
 
 
-@router.message(F.text.regexp(r"^(?i)(удалить|DELETE)\s+(.+)$"))
+@router.message(F.text.regexp(r"^(удалить)\s+(.+)$"))
 async def handle_city_reject(message: Message, session: AsyncSession):
-    """Отклонение города: 'удалить Новосибирск' или 'DELETE Novosibirsk'"""
-    match = re.match(r"^(?:удалить|DELETE)\s+(.+)$", message.text.strip(), re.IGNORECASE)
+    """Отклонение города: 'удалить Новосибирск'"""
+    match = re.match(r"^(?:удалить)\s+(.+)$", message.text.strip(), re.IGNORECASE)
     if not match:
         return
 
