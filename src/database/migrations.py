@@ -89,6 +89,10 @@ async def run_migrations(db_manager: DatabaseManager):
                         text("INSERT INTO schema_migrations (version) VALUES (:version)"),
                         {"version": 7}
                     )
+                elif version == 8:
+                    # Для миграции v8 нужна сессия, а не conn
+                    # Поэтому вызываем через отдельную логику
+                    pass
 
 
 async def apply_migration(conn, version: int):
@@ -360,6 +364,16 @@ async def initialize_database(db_manager: DatabaseManager):
         db_manager: Менеджер базы данных
     """
     await run_migrations(db_manager)
+    
+    # Применяем миграцию v8 отдельно (нужна сессия, не conn)
+    async with db_manager.async_session_factory() as session:
+        from .migrations.v8_add_cities import migrate_v8
+        current_version = await session.execute(text("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"))
+        current = current_version.scalar() or 0
+        
+        if current < 8:
+            await migrate_v8(session)
+            await session.commit()
     
     # Проверяем статус миграций
     current_version, is_latest = await get_migration_status(db_manager)
