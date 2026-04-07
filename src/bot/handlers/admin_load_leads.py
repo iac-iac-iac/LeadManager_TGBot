@@ -305,17 +305,18 @@ async def handle_bitrix_segment_page(callback: CallbackQuery, state: FSMContext,
 async def handle_segment_select(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Обработка выбора сегмента (для загрузки на менеджера)"""
     try:
-        # Проверяем состояние - если это загрузка на Bitrix24 ID, пропускаем
-        current_state = await state.get_state()
-        if current_state == AdminLoadLeadsBitrixStates.SELECT_SEGMENT:
-            return  # Это загрузка на Bitrix24 ID, обрабатывается в handle_bitrix_segment_select
-
         parsed = callback.data.split(":", 1)
         segment_index = int(parsed[1])  # ✅ Получаем индекс сегмента
+
+        logger.info(f"handle_segment_select: index={segment_index}")
 
         # Получаем данные из состояния
         state_data = await state.get_data()
         segments = state_data.get("segments_list", [])
+
+        logger.info(f"handle_segment_select: segments count={len(segments)}")
+        for i, (seg, cities) in enumerate(segments):
+            logger.info(f"  [{i}] '{seg}' cities={cities}")
 
         # ✅ Находим сегмент по индексу
         if segment_index < 0 or segment_index >= len(segments):
@@ -414,6 +415,8 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
                 await callback.answer("⚠️ Город не найден", show_alert=True)
                 return
             selected_city = cities[city_index]
+
+        logger.info(f"🔵🔵🔵 handle_city_select: selected_city='{selected_city}'")
 
         # Сохраняем город
         await state.update_data(selected_city=selected_city)
@@ -1102,6 +1105,8 @@ async def handle_bitrix_city_select(callback: CallbackQuery, state: FSMContext, 
                 await callback.answer("⚠️ Город не найден", show_alert=True)
                 return
             selected_city = cities[city_index]
+
+        logger.info(f"🔵🔵🔵 handle_city_select: selected_city='{selected_city}'")
         
         # Сохраняем город
         await state.update_data(selected_city=selected_city)
