@@ -212,6 +212,92 @@ async def handle_manager_select(callback: CallbackQuery, state: FSMContext, sess
 
 
 # =============================================================================
+# Пагинация сегментов
+# =============================================================================
+
+@router.callback_query(F.data.startswith("load_leads_segment_page:"))
+async def handle_leads_segment_page(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Пагинация сегментов для загрузки на менеджера"""
+    try:
+        parsed = callback.data.split(":")
+        new_page = int(parsed[1])
+
+        # Получаем данные из состояния
+        state_data = await state.get_data()
+        segments = state_data.get("segments_list", [])
+
+        if not segments:
+            await callback.answer("⚠️ Список сегментов не найден", show_alert=True)
+            return
+
+        # Обновляем страницу
+        await state.update_data(current_page=new_page)
+
+        # Показываем новую страницу
+        keyboard = create_segments_load_keyboard(segments, page=new_page, page_size=10)
+
+        try:
+            await callback.message.edit_text(
+                ADMIN_LOAD_LEADS_SELECT_SEGMENT,
+                reply_markup=keyboard
+            )
+        except Exception:
+            # Если edit не удался, отправляем новое сообщение
+            await callback.message.answer(
+                ADMIN_LOAD_LEADS_SELECT_SEGMENT,
+                reply_markup=keyboard
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка пагинации сегментов: {type(e).__name__}: {e}")
+        try:
+            await callback.answer("⚠️ Ошибка", show_alert=True)
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data.startswith("load_bitrix_segment_page:"))
+async def handle_bitrix_segment_page(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Пагинация сегментов для загрузки на Bitrix24 ID"""
+    try:
+        parsed = callback.data.split(":")
+        new_page = int(parsed[1])
+
+        # Получаем данные из состояния
+        state_data = await state.get_data()
+        segments = state_data.get("segments_list", [])
+
+        if not segments:
+            await callback.answer("⚠️ Список сегментов не найден", show_alert=True)
+            return
+
+        # Обновляем страницу
+        await state.update_data(current_page=new_page)
+
+        # Показываем новую страницу
+        keyboard = create_segments_load_keyboard(segments, page=new_page, page_size=10, prefix="load_bitrix_segment")
+
+        try:
+            await callback.message.edit_text(
+                ADMIN_LOAD_LEADS_SELECT_SEGMENT,
+                reply_markup=keyboard
+            )
+        except Exception:
+            # Если edit не удался, отправляем новое сообщение
+            await callback.message.answer(
+                ADMIN_LOAD_LEADS_SELECT_SEGMENT,
+                reply_markup=keyboard
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка пагинации сегментов: {type(e).__name__}: {e}")
+        try:
+            await callback.answer("⚠️ Ошибка", show_alert=True)
+        except Exception:
+            pass
+
+
+# =============================================================================
 # Выбор сегмента
 # =============================================================================
 
