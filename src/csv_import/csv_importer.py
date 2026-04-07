@@ -548,7 +548,8 @@ class CSVImporter:
             # Создаем лиды в БД с проверкой на дубли
             leads_data = []
             duplicate_count = 0
-            
+            pending_cities_count = 0
+
             for record in records:
                 # Проверка на дубль в SQLite
                 is_duplicate = await self._check_sqlite_duplicate(
@@ -557,18 +558,32 @@ class CSVImporter:
                     record["mobile_phone"],
                     record["company_name"]
                 )
-                
+
                 if is_duplicate:
                     duplicate_count += 1
                     logger.debug(f"Пропущен дубль: {record['company_name']} ({record['phone'] or record['mobile_phone']})")
                     continue
-                
+
+                # Проверяем город
+                city = record["city"]
+                lead_status = LeadStatus.NEW
+
+                if city:
+                    existing_city = await crud.get_city(session, city)
+                    if not existing_city:
+                        # Город не найден — создаём pending
+                        pending = await crud.create_pending_city(session, city, "admin")
+                        if pending:
+                            pending_cities_count += 1
+                            lead_status = LeadStatus.PENDING_UTC
+                            logger.info(f"🆕 Новый город: {city} → PENDING_UTC")
+
                 lead_data = {
                     "company_name": record["company_name"],
                     "phone": record["phone"],
                     "mobile_phone": record["mobile_phone"],
                     "address": record["address"],
-                    "city": record["city"],
+                    "city": city,
                     "segment": record["segment"],
                     "source": record["source"],
                     "work_email": record["work_email"],
@@ -578,7 +593,7 @@ class CSVImporter:
                     "service_type": record["service_type"],
                     "stage": record["stage"],
                     "phone_source": record["phone_source"],
-                    "status": LeadStatus.NEW,
+                    "status": lead_status,
                 }
                 leads_data.append(lead_data)
             

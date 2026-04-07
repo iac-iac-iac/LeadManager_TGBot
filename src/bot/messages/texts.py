@@ -219,6 +219,7 @@ IMPORT_CSV_SUCCESS = """
 Файл: {filename}
 
 Проводится дедупликация БД...
+{pending_cities_text}
 """
 
 IMPORT_CSV_ERROR = """

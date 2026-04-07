@@ -181,10 +181,17 @@ async def handle_file_select(message: Message, state: FSMContext, session: Async
         result = await import_csv_file(session, file_path)
 
         if result.get("imported", 0) > 0:
+            pending_cities_count = result.get("pending_cities", 0)
+            if pending_cities_count > 0:
+                pending_text = f"\n🆕 Новые города: {pending_cities_count} (ожидают UTC)"
+            else:
+                pending_text = ""
+
             await message.answer(
                 IMPORT_CSV_SUCCESS.format(
                     count=result["imported"],
-                    filename=filename
+                    filename=filename,
+                    pending_cities_text=pending_text
                 ) + "\n\n"
                 f"📌 Для проверки на дубли используйте кнопку '🔍 Проверка дублей' в главном меню админа."
             )
@@ -250,10 +257,17 @@ async def handle_file_upload(message: Message, state: FSMContext, session: Async
         result = await import_csv_file(session, file_path, auto_check_duplicates=False)
 
         if result.get("imported", 0) > 0:
+            pending_cities_count = result.get("pending_cities", 0)
+            if pending_cities_count > 0:
+                pending_text = f"\n🆕 Новые города: {pending_cities_count} (ожидают UTC)"
+            else:
+                pending_text = ""
+
             await message.answer(
                 IMPORT_CSV_SUCCESS.format(
                     count=result["imported"],
-                    filename=document.file_name
+                    filename=document.file_name,
+                    pending_cities_text=pending_text
                 )
             )
         else:
