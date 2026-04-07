@@ -26,9 +26,19 @@ _spec.loader.exec_module(_v7_module)
 migration_v7_add_critical_indexes = _v7_module.migration_v7_add_critical_indexes
 rollback_migration_v7 = _v7_module.rollback_migration_v7
 
+# Миграция v8: Таблицы городов
+_spec = importlib.util.spec_from_file_location(
+    "v8_add_cities",
+    os.path.join(os.path.dirname(__file__), "migrations", "v8_add_cities.py")
+)
+_v8_module = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_v8_module)
+
+migration_v8_add_cities = _v8_module.migrate_v8
+
 
 # Версия схемы
-SCHEMA_VERSION = 7  # Увеличиваем версию для критических индексов
+SCHEMA_VERSION = 8  # Таблицы городов с UTC offset
 
 
 async def run_migrations(db_manager: DatabaseManager):
@@ -96,6 +106,7 @@ async def apply_migration(conn, version: int):
         5: migration_v5_create_tickets_table,
         6: migration_v6_create_bot_status_table,
         7: migration_v7_add_critical_indexes,
+        8: migration_v8_add_cities,
     }
 
     if version in migrations:

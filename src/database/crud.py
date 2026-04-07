@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from .models import (
     Lead, LeadStatus, User, UserRole, UserStatus,
-    SegmentLock, Log, DatabaseManager, Segment, Ticket, BotStatus
+    SegmentLock, Log, DatabaseManager, Segment, Ticket, BotStatus,
+    City, PendingCity
 )
 
 

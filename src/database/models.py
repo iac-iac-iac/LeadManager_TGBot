@@ -25,6 +25,7 @@ class LeadStatus(str, PyEnum):
     ASSIGNED = "ASSIGNED"
     IMPORTED = "IMPORTED"
     ERROR_IMPORT = "ERROR_IMPORT"
+    PENDING_UTC = "PENDING_UTC"  # Ожидает ввода UTC для города
 
 
 class UserRole(str, PyEnum):
@@ -38,6 +39,44 @@ class UserStatus(str, PyEnum):
     PENDING_APPROVAL = "PENDING_APPROVAL"
     ACTIVE = "ACTIVE"
     REJECTED = "REJECTED"
+
+
+# =============================================================================
+# Таблица городов
+# =============================================================================
+
+class City(Base):
+    """
+    Модель города с UTC offset от Москвы
+
+    Таблица для хранения городов и их часовых поясов
+    """
+    __tablename__ = "cities"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    utc_offset = Column(Integer, nullable=False)  # Часы от Москвы (например, +2, -1)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    def __repr__(self):
+        return f"<City(name='{self.name}', utc_offset={self.utc_offset:+d})>"
+
+
+class PendingCity(Base):
+    """
+    Модель ожидающего города (нужен ввод UTC от админа)
+
+    Создаётся при импорте CSV, если город не найден в таблице cities
+    """
+    __tablename__ = "pending_cities"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    admin_telegram_id = Column(String(50), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    def __repr__(self):
+        return f"<PendingCity(name='{self.name}', admin='{self.admin_telegram_id}')>"
 
 
 class Lead(Base):
