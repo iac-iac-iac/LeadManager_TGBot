@@ -169,13 +169,17 @@ def create_segments_keyboard(
     # Показываем сегменты текущей страницы
     for idx in range(start_idx, end_idx):
         segment, cities = segments[idx]
-        
+
         # Используем глобальный индекс для callback_data
         callback_data = f"{prefix}:{idx}"
 
         # Отображаем сегмент с количеством городов
-        cities_count = f" ({len(cities)} гор.)" if cities else ""
-        button_text = f"{get_segment_emoji(segment)} {segment}{cities_count}"
+        # Для "Прочее" сегментов не добавляем "(N гор.)" — там уже есть счётчик лидов
+        if "📦 Прочие" in segment or "📦 Прочее" in segment:
+            button_text = f"{segment}"
+        else:
+            cities_count = f" ({len(cities)} гор.)" if cities else ""
+            button_text = f"{get_segment_emoji(segment)} {segment}{cities_count}"
 
         builder.button(text=button_text, callback_data=callback_data)
     
