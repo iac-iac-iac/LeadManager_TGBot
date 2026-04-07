@@ -158,38 +158,42 @@ async def count_available_leads(
 async def count_other_leads(
     session: AsyncSession,
     other_type: str,
+    segment: str = None,
     tail_threshold: int = 10,
     plusoviki_threshold: int = 3
 ) -> int:
-    """Подсчёт лидов в категории 'Прочее' (города < 10 лидов внутри сегментов)"""
+    """Подсчёт лидов в категории 'Прочее' (города < 10 лидов внутри сегмента)"""
     # Получаем все города с UTC
     all_cities_result = await session.execute(select(City))
     city_utc = {c.name: c.utc_offset for c in all_cities_result.scalars().all()}
 
     # Считаем лиды по сегмент+город
-    leads_count_query = select(
+    query = select(
         Lead.segment, Lead.city, func.count(Lead.id).label('cnt')
     ).where(
         Lead.status == LeadStatus.UNIQUE
-    ).group_by(Lead.segment, Lead.city)
+    )
+    if segment:
+        query = query.where(Lead.segment == segment)
+    query = query.group_by(Lead.segment, Lead.city)
 
-    result = await session.execute(leads_count_query)
+    result = await session.execute(query)
     total = 0
 
     # Сначала считаем тоталы по сегментам
     segment_city_counts = {}
     segment_total_counts = {}
 
-    for segment, city, count in result.all():
-        if segment not in segment_city_counts:
-            segment_city_counts[segment] = {}
-            segment_total_counts[segment] = 0
-        segment_city_counts[segment][city or ""] = count
-        segment_total_counts[segment] += count
+    for seg, city, count in result.all():
+        if seg not in segment_city_counts:
+            segment_city_counts[seg] = {}
+            segment_total_counts[seg] = 0
+        segment_city_counts[seg][city or ""] = count
+        segment_total_counts[seg] += count
 
-    # Теперь считаем "Прочие" только для сегментов >= tail_threshold
-    for segment, city_counts in segment_city_counts.items():
-        seg_total = segment_total_counts.get(segment, 0)
+    # Теперь считаем "Прочие"
+    for seg, city_counts in segment_city_counts.items():
+        seg_total = segment_total_counts.get(seg, 0)
         if seg_total >= tail_threshold:
             # Сегмент большой, считаем только малые города
             for city_name, count in city_counts.items():
@@ -201,7 +205,6 @@ async def count_other_leads(
                         total += count
         else:
             # Сегмент малый — весь в "Прочее"
-            # Определяем UTC по первому городу
             first_city = next(iter(city_counts.keys()), "")
             utc = city_utc.get(first_city, 0) if first_city else 0
             if other_type == "plusoviki" and utc >= plusoviki_threshold:
@@ -209,7 +212,7 @@ async def count_other_leads(
             elif other_type == "regular" and utc < plusoviki_threshold:
                 total += seg_total
 
-    logger.info(f"count_other_leads: other_type={other_type}, total={total}")
+    logger.info(f"count_other_leads: segment={segment}, other_type={other_type}, total={total}")
     return total
 
 

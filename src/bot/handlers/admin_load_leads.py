@@ -347,7 +347,7 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
                 # Для "Прочее" используем специальную функцию
                 other_type = "regular" if is_other_regular else "plusoviki"
                 available_count = await crud.count_other_leads(
-                    session, other_type=other_type
+                    session, other_type=other_type, segment=segment_name
                 )
                 # Сохраняем тип "Прочее" для последующего получения лидов
                 await state.update_data(is_other=True, other_type=other_type)
@@ -434,7 +434,7 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
             other_type = "regular" if is_other_regular else "plusoviki"
             logger.info(f"Выбран 'Прочие': other_type={other_type}, selected_city={selected_city}")
             available_count = await crud.count_other_leads(
-                session, other_type=other_type
+                session, other_type=other_type, segment=segment_name
             )
             logger.info(f"count_other_leads вернул: {available_count}")
             await state.update_data(is_other=True, other_type=other_type)
@@ -1020,7 +1020,7 @@ async def handle_bitrix_segment_select(callback: CallbackQuery, state: FSMContex
             if is_other:
                 other_type = "regular" if is_other_regular else "plusoviki"
                 available_count = await crud.count_other_leads(
-                    session, other_type=other_type
+                    session, other_type=other_type, segment=segment_name
                 )
                 # Сохраняем тип "Прочее" для последующего получения лидов
                 await state.update_data(is_other=True, other_type=other_type)
@@ -1124,7 +1124,7 @@ async def handle_bitrix_city_select(callback: CallbackQuery, state: FSMContext, 
             other_type = "regular" if is_other_regular else "plusoviki"
             logger.info(f"Выбран 'Прочие': other_type={other_type}, selected_city={selected_city}")
             available_count = await crud.count_other_leads(
-                session, other_type=other_type
+                session, other_type=other_type, segment=segment_name
             )
             logger.info(f"count_other_leads вернул: {available_count}")
             await state.update_data(is_other=True, other_type=other_type)
