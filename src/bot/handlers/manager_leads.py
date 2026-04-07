@@ -183,6 +183,11 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
     # Сохраняем в состоянии
     await state.update_data(selected_segment=segment, segment_index=segment_index)
 
+    # Проверяем, это "Прочее" сегмент
+    is_other_regular = "Прочее (Обыч.)" in segment
+    is_other_plusoviki = "Прочее (Плюсовики)" in segment
+    is_other = is_other_regular or is_other_plusoviki
+
     # Удаляем предыдущее сообщение
     try:
         await callback.message.delete()
@@ -194,7 +199,18 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
         await state.update_data(selected_city=None)
 
         # Проверяем доступное количество
-        available_count = await crud.count_available_leads(session, segment, city=None)
+        if is_other:
+            # Для "Прочее" используем специальную функцию
+            # НЕ передаём segment так как это "📦 Прочее (Обыч.) — N лидов", а не реальный сегмент
+            other_type = "regular" if is_other_regular else "plusoviki"
+            available_count = await crud.count_other_leads(
+                session, other_type=other_type
+            )
+            logger.info(f"Менеджер сегмент Прочее: other_type={other_type}, count={available_count}")
+            await state.update_data(is_other=True, other_type=other_type)
+        else:
+            available_count = await crud.count_available_leads(session, segment, city=None)
+            await state.update_data(is_other=False, other_type=None)
 
         await state.set_state(ManagerStates.LEADS_COUNT)
         await callback.message.answer(
@@ -572,7 +588,7 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         leads = await crud.get_other_leads_for_assignment(
             session,
             other_type=other_type,
-            segment=segment,
+            segment=None,  # Для "Прочее" не фильтруем по сегменту (так как сегмент — это "📦 Прочее (Обыч.)")
             limit=count,
         )
     else:
