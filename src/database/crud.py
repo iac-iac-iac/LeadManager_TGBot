@@ -9,6 +9,9 @@ from sqlalchemy import select, update, delete, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from ..logger import get_logger
+logger = get_logger(__name__)
+
 from .models import (
     Lead, LeadStatus, User, UserRole, UserStatus,
     SegmentLock, Log, DatabaseManager, Segment, Ticket, BotStatus,
