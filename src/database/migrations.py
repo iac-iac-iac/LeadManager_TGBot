@@ -4,6 +4,7 @@
 Управление версионированием схемы БД
 """
 import importlib.util
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
