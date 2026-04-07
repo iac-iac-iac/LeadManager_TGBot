@@ -186,6 +186,7 @@ def register_handlers(dp: Dispatcher, db_manager: DatabaseManager, config: Confi
     from src.bot.handlers.admin_bot_control import router as bot_control_router
     from src.bot.handlers.admin_load_leads import router as admin_load_leads_router
     from src.bot.handlers.admin_broadcast import router as admin_broadcast_router
+    from src.bot.handlers.admin_pending_cities import router as admin_pending_cities_router
 
     # Создаем Bitrix24 клиент
     bitrix24_client = get_bitrix24_client(
@@ -208,6 +209,7 @@ def register_handlers(dp: Dispatcher, db_manager: DatabaseManager, config: Confi
     dp.include_router(bot_control_router)
     dp.include_router(admin_load_leads_router)
     dp.include_router(admin_broadcast_router)
+    dp.include_router(admin_pending_cities_router)
 
     # Добавляем зависимости в data
     dp["bitrix24_client"] = bitrix24_client

@@ -159,6 +159,7 @@ ADMIN_SEGMENTS = "⚙️ Управление сегментами"
 ADMIN_CLEANUP = "🧹 Очистка данных"
 ADMIN_PENDING_USERS = "👥 Заявки менеджеров"
 ADMIN_BROADCAST = "📢 Рассылка пользователям"
+ADMIN_PENDING_CITIES = "🌍 Управление городами"
 
 # Рассылка
 BROADCAST_INPUT_PROMPT = """

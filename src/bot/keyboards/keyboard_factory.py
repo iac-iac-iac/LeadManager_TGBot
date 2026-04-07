@@ -16,7 +16,7 @@ from ..messages.texts import (
     BTN_NEXT, BTN_PREVIOUS,
     MANAGER_GET_LEADS, MANAGER_MY_STATS, MANAGER_ABOUT,
     ADMIN_IMPORT_CSV, ADMIN_DUPLICATE_CHECK, ADMIN_STATS,
-    ADMIN_EXPORT, ADMIN_SEGMENTS, ADMIN_CLEANUP, ADMIN_PENDING_USERS, ADMIN_BROADCAST,
+    ADMIN_EXPORT, ADMIN_SEGMENTS, ADMIN_CLEANUP, ADMIN_PENDING_USERS, ADMIN_BROADCAST, ADMIN_PENDING_CITIES,
     DUPLICATE_CHECK_RUN,
     CLEANUP_LOGS, CLEANUP_DUPLICATES, CLEANUP_IMPORTED,
     SEGMENT_FREEZE, SEGMENT_UNFREEZE,
@@ -136,6 +136,7 @@ def create_admin_main_menu() -> InlineKeyboardMarkup:
     builder.button(text=ADMIN_LOAD_LEADS_BUTTON, callback_data="admin_load_leads")
     builder.button(text=ADMIN_LOAD_LEADS_BITRIX_ID, callback_data="admin_load_leads_bitrix")
     builder.button(text=ADMIN_BROADCAST, callback_data="admin_broadcast")
+    builder.button(text=ADMIN_PENDING_CITIES, callback_data="admin_pending_cities")
     builder.button(text=ADMIN_CLEANUP, callback_data="admin_cleanup")
     builder.button(text=ADMIN_PENDING_USERS, callback_data="admin_pending_users")
 
