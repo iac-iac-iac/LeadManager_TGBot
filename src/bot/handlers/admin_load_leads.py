@@ -337,26 +337,23 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
         is_other = is_other_regular or is_other_plusoviki
 
         if not cities:
-        # Нет городов - сразу к количеству
-        await state.update_data(selected_city=None)
-        await state.set_state(AdminLoadLeadsStates.ENTER_COUNT)
+            # Нет городов - сразу к количеству
+            await state.update_data(selected_city=None)
+            await state.set_state(AdminLoadLeadsStates.ENTER_COUNT)
 
-        # Проверяем доступное количество
-        if is_other:
-        # Для "Прочее" используем специальную функцию
-        other_type = "regular" if is_other_regular else "plusoviki"
-            available_count = await crud.count_other_leads(
-                session, other_type=other_type
-            )
+            # Проверяем доступное количество
+            if is_other:
+                # Для "Прочее" используем специальную функцию
+                other_type = "regular" if is_other_regular else "plusoviki"
+                available_count = await crud.count_other_leads(
+                    session, other_type=other_type
+                )
+                # Сохраняем тип "Прочее" для последующего получения лидов
+                await state.update_data(is_other=True, other_type=other_type)
             else:
                 available_count = await crud.count_available_leads_for_assignment(
                     session, segment_name, city=None
                 )
-
-            # Сохраняем тип "Прочее" для последующего получения лидов
-            if is_other:
-                other_type = "regular" if is_other_regular else "plusoviki"
-                await state.update_data(is_other=True, other_type=other_type)
 
             await callback.message.answer(
                 f"📊 Доступно лидов: {available_count}\n\n"
