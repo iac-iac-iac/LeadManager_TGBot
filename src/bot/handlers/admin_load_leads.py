@@ -810,6 +810,11 @@ async def back_to_segment_select(callback: CallbackQuery, state: FSMContext, ses
         
         # Получаем сегменты (включая замороженные — админ может загружать в любые)
         segments = await crud.get_segments_with_cities(session, exclude_frozen=False)
+        
+        # Логируем для отладки
+        logger.info(f"Загрузка сегментов: найдено {len(segments)} сегментов")
+        for seg_name, cities in segments:
+            logger.info(f"  Сегмент: '{seg_name}', города: {cities}")
 
         if not segments:
             await callback.message.answer(
@@ -911,6 +916,11 @@ async def handle_bitrix_id_input(message: Message, state: FSMContext, session: A
 
         # Получаем сегменты (включая замороженные — админ может загружать в любые)
         segments = await crud.get_segments_with_cities(session, exclude_frozen=False)
+        
+        # Логируем для отладки
+        logger.info(f"Загрузка сегментов: найдено {len(segments)} сегментов")
+        for seg_name, cities in segments:
+            logger.info(f"  Сегмент: '{seg_name}', города: {cities}")
 
         if not segments:
             await message.answer(
