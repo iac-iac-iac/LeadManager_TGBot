@@ -390,6 +390,7 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
 @router.callback_query(F.data.startswith("load_leads_city:"))
 async def handle_city_select(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Обработка выбора города"""
+    logger.info(f"🟢🟢🟢 handle_city_select вызван! callback_data='{callback.data}'")
     try:
         parsed = callback.data.split(":")
         segment_index = int(parsed[1])
