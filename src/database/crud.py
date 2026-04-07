@@ -1026,19 +1026,28 @@ async def get_segments_with_cities(
         else:
             # Сегмент >= 10 → показываем
             visible_cities = []
-            small_cities_count = 0
-            small_cities_leads = 0
+            other_regular_count = 0
+            other_regular_leads = 0
+            other_plusoviki_count = 0
+            other_plusoviki_leads = 0
 
             for city_name, count in city_counts.items():
                 if count >= tail_threshold:
                     visible_cities.append(city_name if city_name else "Без города")
                 else:
-                    small_cities_count += 1
-                    small_cities_leads += count
+                    # Определяем UTC города
+                    utc = city_utc.get(city_name, 0)
+                    if utc >= plusoviki_threshold:
+                        other_plusoviki_count += 1
+                        other_plusoviki_leads += count
+                    else:
+                        other_regular_count += 1
+                        other_regular_leads += count
 
-            if small_cities_count > 0:
-                visible_cities.append(f"📦 Прочие ({small_cities_leads})")
-                logger.info(f"    Добавлены 'Прочие' для сегмента '{segment}': {small_cities_leads} лидов из {small_cities_count} городов")
+            if other_regular_count > 0:
+                visible_cities.append(f"📦 Прочие (Обыч.) ({other_regular_leads})")
+            if other_plusoviki_count > 0:
+                visible_cities.append(f"📦 Прочие (Плюсовики) ({other_plusoviki_leads})")
 
             result_segments.append((segment, visible_cities))
             logger.info(f"    Сегмент '{segment}' добавлен с городами: {visible_cities}")

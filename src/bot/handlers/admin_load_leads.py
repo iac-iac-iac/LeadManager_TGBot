@@ -414,15 +414,28 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
                 await callback.answer("⚠️ Город не найден", show_alert=True)
                 return
             selected_city = cities[city_index]
-        
+
         # Сохраняем город
         await state.update_data(selected_city=selected_city)
+
+        # Проверяем, это "Прочие" город
+        is_other_regular = selected_city and "Прочие (Обыч.)" in str(selected_city)
+        is_other_plusoviki = selected_city and "Прочие (Плюсовики)" in str(selected_city)
+        is_other = is_other_regular or is_other_plusoviki
+
         await state.set_state(AdminLoadLeadsStates.ENTER_COUNT)
-        
+
         # Проверяем доступное количество
-        available_count = await crud.count_available_leads_for_assignment(
-            session, segment_name, city=selected_city
-        )
+        if is_other:
+            other_type = "regular" if is_other_regular else "plusoviki"
+            available_count = await crud.count_other_leads(
+                session, other_type=other_type
+            )
+            await state.update_data(is_other=True, other_type=other_type)
+        else:
+            available_count = await crud.count_available_leads_for_assignment(
+                session, segment_name, city=selected_city
+            )
         
         await callback.message.answer(
             f"📊 Доступно лидов: {available_count}\n\n"
@@ -1089,12 +1102,25 @@ async def handle_bitrix_city_select(callback: CallbackQuery, state: FSMContext, 
         
         # Сохраняем город
         await state.update_data(selected_city=selected_city)
+
+        # Проверяем, это "Прочие" город
+        is_other_regular = selected_city and "Прочие (Обыч.)" in str(selected_city)
+        is_other_plusoviki = selected_city and "Прочие (Плюсовики)" in str(selected_city)
+        is_other = is_other_regular or is_other_plusoviki
+
         await state.set_state(AdminLoadLeadsBitrixStates.ENTER_COUNT)
-        
+
         # Проверяем доступное количество
-        available_count = await crud.count_available_leads_for_assignment(
-            session, segment_name, city=selected_city
-        )
+        if is_other:
+            other_type = "regular" if is_other_regular else "plusoviki"
+            available_count = await crud.count_other_leads(
+                session, other_type=other_type
+            )
+            await state.update_data(is_other=True, other_type=other_type)
+        else:
+            available_count = await crud.count_available_leads_for_assignment(
+                session, segment_name, city=selected_city
+            )
         
         # Получаем back_callback из состояния
         state_data = await state.get_data()
