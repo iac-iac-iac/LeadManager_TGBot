@@ -15,7 +15,7 @@ from sqlalchemy import text, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def migrate_v8(session: AsyncSession):
+async def migrate_v8(session: AsyncSession, City, Lead, LeadStatus):
     """
     Выполнение миграции v8
 

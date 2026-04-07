@@ -371,7 +371,9 @@ async def initialize_database(db_manager: DatabaseManager):
         current = current_version.scalar() or 0
         
         if current < 8:
-            await _v8_module.migrate_v8(session)
+            # Импортируем модели напрямую
+            from ..models import City, Lead, LeadStatus
+            await _v8_module.migrate_v8(session, City, Lead, LeadStatus)
             await session.commit()
     
     # Проверяем статус миграций
