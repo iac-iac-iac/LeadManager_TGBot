@@ -25,6 +25,7 @@ from ...database.city_crud import (
     get_pending_cities,
     approve_pending_city,
     reject_pending_city,
+    delete_approved_city,
 )
 from ...logger import get_logger
 
@@ -110,8 +111,21 @@ async def handle_city_reject(message: Message, session: AsyncSession):
 
     city_name = match.group(1).strip()
 
+    # Сначала пробуем удалить из pending городов
     result = await reject_pending_city(session, city_name)
     await session.commit()
+
+    if result.get("deleted_leads", 0) == 0:
+        # Если не найдено в pending, пробуем удалить из одобренных городов
+        result = await delete_approved_city(session, city_name)
+        await session.commit()
+
+        if not result.get("city_found", False):
+            await message.answer(
+                f"⚠️ Город '{city_name}' не найден",
+                reply_markup=create_back_keyboard("admin_pending_cities")
+            )
+            return
 
     await message.answer(
         CITY_REJECTED.format(
@@ -194,7 +208,7 @@ async def handle_city_approve(message: Message, session: AsyncSession):
         parse_mode="HTML"
     )
 
-    pending_count = await crud.count_pending_cities(session)
+    pending_count = await count_pending_cities(session)
     if pending_count > 0:
         await message.answer(
             f"📋 Ожидают ещё: {pending_count}",

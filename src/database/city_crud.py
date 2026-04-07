@@ -154,3 +154,33 @@ async def count_pending_cities(session: AsyncSession) -> int:
     """Количество pending городов"""
     result = await session.execute(select(func.count(PendingCity.id)))
     return result.scalar() or 0
+
+
+async def delete_approved_city(session: AsyncSession, city_name: str) -> dict:
+    """
+    Удалить одобренный город из cities и все его лиды из leads
+    """
+    # Находим город
+    result = await session.execute(
+        select(City).where(City.name == city_name)
+    )
+    city = result.scalar()
+    if not city:
+        return {"deleted_leads": 0, "city_found": False}
+
+    # Удаляем все лиды этого города
+    result = await session.execute(
+        select(Lead.id).where(Lead.city == city_name)
+    )
+    lead_ids = [row[0] for row in result.all()]
+
+    if lead_ids:
+        await session.execute(
+            sql_delete(Lead).where(Lead.id.in_(lead_ids))
+        )
+
+    # Удаляем город
+    await session.delete(city)
+    await session.flush()
+
+    return {"deleted_leads": len(lead_ids), "city_found": True}
