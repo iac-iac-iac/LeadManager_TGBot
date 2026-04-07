@@ -396,8 +396,9 @@ async def handle_lead_count_input(message: Message, state: FSMContext, session: 
 
     # Проверяем доступное количество
     if is_other:
+        # Для "Прочее" НЕ передаём segment так как это отображаемое название, а не реальный сегмент
         available_count = await crud.count_other_leads(
-            session, other_type=other_type, segment=segment
+            session, other_type=other_type
         )
     else:
         available_count = await crud.count_available_leads(session, segment, city)
