@@ -4,7 +4,7 @@ CRUD операции для городов и pending городов
 from sqlalchemy import select, func, update as sql_update, delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import City, PendingCity, Lead, LeadStatus
+from .models import City, PendingCity, Lead, LeadStatus
 
 
 async def get_city(session: AsyncSession, city_name: str):
