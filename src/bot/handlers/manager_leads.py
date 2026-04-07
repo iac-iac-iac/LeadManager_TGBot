@@ -354,8 +354,11 @@ async def handle_lead_count_input(message: Message, state: FSMContext, session: 
         )
         return
 
-    # Проверка минимума 10 лидов
-    if count < 10:
+    # Проверка минимума 10 лидов (исключение для "Прочие")
+    data = await state.get_data()
+    is_other = data.get("is_other", False)
+    
+    if count < 10 and not is_other:
         await message.answer(
             "❌ Минимальное количество для загрузки: 10 лидов.\n"
             f"Введите число от 10 до 200.",
@@ -393,8 +396,8 @@ async def handle_lead_count_input(message: Message, state: FSMContext, session: 
         return
 
     if count > available_count:
-        # Если доступно меньше 10, можно взять всё (исключение для "Прочее")
-        if available_count < 10:
+        # Для "Прочие" всегда можно взять всё доступное (даже если < 10)
+        if available_count < 10 or is_other:
             await _show_not_enough_leads(
                 message, state, available_count, count, allow_take_all=True
             )
