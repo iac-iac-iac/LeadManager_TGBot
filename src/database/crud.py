@@ -874,6 +874,10 @@ async def get_segments_with_cities(
     """
     Получение списка сегментов с городами
 
+    Логика:
+    - Если сегмент < tail_threshold лидов → весь сегмент в "Прочее"
+    - Если сегмент >= tail_threshold → показываем сегмент, города < tail_threshold → "📦 Прочие"
+
     Args:
         session: Сессия БД
         exclude_frozen: Исключать замороженные сегменты
@@ -883,38 +887,30 @@ async def get_segments_with_cities(
 
     Returns:
         List кортежей [(segment, [cities]), ...]
-        Если include_other=True, добавляется:
-        - ("📦 Прочее (Обыч.)", [city1, city2, ...])
-        - ("📦 Прочее (Плюсовики)", [city1, city2, ...])
     """
-    # Получаем уникальные сегменты
-    query = select(Lead.segment, Lead.city).where(
+    # Получаем все города с их UTC
+    all_cities_result = await session.execute(select(City))
+    city_utc = {c.name: c.utc_offset for c in all_cities_result.scalars().all()}
+
+    # Считаем лиды по сегмент+город
+    leads_count_query = select(
+        Lead.segment, Lead.city, func.count(Lead.id).label('cnt')
+    ).where(
         Lead.status == LeadStatus.UNIQUE
-    )
+    ).group_by(Lead.segment, Lead.city)
 
-    if exclude_frozen:
-        # Исключаем замороженные сегменты
-        frozen_segments = select(SegmentLock.segment).where(
-            SegmentLock.is_frozen == True,
-            SegmentLock.city.is_(None)
-        )
-        query = query.where(Lead.segment.notin_(frozen_segments))
+    result = await session.execute(leads_count_query)
+    segment_city_counts = {}
+    segment_total_counts = {}
 
-    result = await session.execute(query)
+    for segment, city, count in result.all():
+        if segment not in segment_city_counts:
+            segment_city_counts[segment] = {}
+            segment_total_counts[segment] = 0
+        segment_city_counts[segment][city or ""] = count
+        segment_total_counts[segment] += count
 
-    # Группируем по сегментам
-    segments_dict: Dict[str, List[str]] = {}
-    for segment, city in result.all():
-        if segment not in segments_dict:
-            segments_dict[segment] = []
-        # Добавляем город если он есть и ещё не добавлен
-        if city and city not in segments_dict[segment]:
-            segments_dict[segment].append(city)
-        # Если города нет (NULL), помечаем сегмент как существующий
-        elif not city and segment not in segments_dict:
-            segments_dict[segment] = []
-
-    # Если exclude_frozen, исключаем замороженные сегмент+город
+    # Исключаем замороженные
     if exclude_frozen:
         frozen_cities_query = select(
             SegmentLock.segment, SegmentLock.city
@@ -924,17 +920,62 @@ async def get_segments_with_cities(
         )
         frozen_cities = await session.execute(frozen_cities_query)
         for segment, city in frozen_cities.all():
-            if segment in segments_dict and city in segments_dict[segment]:
-                segments_dict[segment].remove(city)
+            if segment in segment_city_counts and city in segment_city_counts[segment]:
+                del segment_city_counts[segment][city]
+            # Пересчитываем тотал
+            if segment in segment_total_counts:
+                segment_total_counts[segment] = sum(segment_city_counts.get(segment, {}).values())
 
-    result_segments = [(seg, cities) for seg, cities in segments_dict.items()]
-
-    # Добавляем "Прочее" если нужно
-    if include_other:
-        other_segments = await _get_other_segments(
-            session, segments_dict, tail_threshold, plusoviki_threshold, exclude_frozen
+        # Исключаем замороженные сегменты целиком
+        frozen_segments = select(SegmentLock.segment).where(
+            SegmentLock.is_frozen == True,
+            SegmentLock.city.is_(None)
         )
-        result_segments.extend(other_segments)
+        frozen_segs_result = await session.execute(frozen_segments)
+        for (frozen_seg,) in frozen_segs_result.all():
+            segment_city_counts.pop(frozen_seg, None)
+            segment_total_counts.pop(frozen_seg, None)
+
+    result_segments = []
+    other_regular_leads = 0  # Счётчик лидов в Обыч
+    other_plusoviki_leads = 0  # Счётчик лидов в Плюсовики
+
+    for segment, city_counts in segment_city_counts.items():
+        total = segment_total_counts.get(segment, 0)
+
+        if total < tail_threshold:
+            # Весь сегмент < 10 → в "Прочее"
+            # Определяем UTC по первому городу (или 0 если нет)
+            first_city = next(iter(city_counts.keys()), "")
+            utc = city_utc.get(first_city, 0) if first_city else 0
+            if utc >= plusoviki_threshold:
+                other_plusoviki_leads += total
+            else:
+                other_regular_leads += total
+        else:
+            # Сегмент >= 10 → показываем
+            visible_cities = []
+            small_cities_count = 0
+            small_cities_leads = 0
+
+            for city_name, count in city_counts.items():
+                if count >= tail_threshold:
+                    visible_cities.append(city_name if city_name else "Без города")
+                else:
+                    small_cities_count += 1
+                    small_cities_leads += count
+
+            if small_cities_count > 0:
+                visible_cities.append(f"📦 Прочие ({small_cities_leads})")
+
+            result_segments.append((segment, visible_cities))
+
+    # Добавляем "Прочее" категории
+    if include_other:
+        if other_regular_leads > 0:
+            result_segments.append((f"📦 Прочее (Обыч.)", []))
+        if other_plusoviki_leads > 0:
+            result_segments.append((f"📦 Прочее (Плюсовики)", []))
 
     return result_segments
 
