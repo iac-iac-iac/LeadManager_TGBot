@@ -395,16 +395,18 @@ async def handle_lead_count_input(message: Message, state: FSMContext, session: 
         await state.clear()
         return
 
+    # Для "Прочие" с малым количеством лидов — предлагаем взять всё
+    if is_other and available_count < 10:
+        await _show_not_enough_leads(
+            message, state, available_count, count, allow_take_all=True
+        )
+        return
+
     if count > available_count:
-        # Для "Прочие" всегда можно взять всё доступное (даже если < 10)
-        if available_count < 10 or is_other:
-            await _show_not_enough_leads(
-                message, state, available_count, count, allow_take_all=True
-            )
-        else:
-            await _show_not_enough_leads(
-                message, state, available_count, count
-            )
+        # Запрошено больше чем доступно — предлагаем взять всё
+        await _show_not_enough_leads(
+            message, state, available_count, count, allow_take_all=True
+        )
         return
 
     # Достаточно лидов - показываем подтверждение
@@ -448,18 +450,27 @@ async def _show_not_enough_leads(
         allow_take_all: Можно ли взять всё доступное (для "Прочее")
     """
     if allow_take_all:
-        # Для "Прочее" — можно взять всё даже если < 10
+        # Для "Прочее" или малого количества — можно взять всё
         keyboard = create_confirmation_keyboard(
             confirm_callback=f"confirm_leads:{available_count}",
             cancel_callback="cancel_leads"
         )
 
-        await message.answer(
-            f"⚠️ Доступно только {available_count} лидов.\n"
-            f"Введите количество (минимум 10, но для 'Прочее' можно взять всё):\n\n"
-            f"Или нажмите '✅ Да, взять {available_count}'",
-            reply_markup=keyboard
-        )
+        if available_count < 10:
+            # Малое количество в "Прочие" — предлагаем взять всё
+            await message.answer(
+                f"📦 В категории 'Прочие' доступно только {available_count} лидов.\n\n"
+                f"Хотите взять всё доступное количество ({available_count})?\n\n"
+                f"✅ Да, взять {available_count}\n"
+                f"❌ Нет, отменить",
+                reply_markup=keyboard
+            )
+        else:
+            await message.answer(
+                f"⚠️ Доступно только {available_count} лидов.\n\n"
+                f"Или нажмите '✅ Да, взять {available_count}'",
+                reply_markup=keyboard
+            )
     else:
         keyboard = create_confirmation_keyboard(
             confirm_callback=f"confirm_leads:{available_count}",
