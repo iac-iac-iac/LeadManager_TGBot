@@ -152,6 +152,70 @@ async def count_available_leads(
     return result.scalar() or 0
 
 
+async def count_other_leads(
+    session: AsyncSession,
+    other_type: str,
+    tail_threshold: int = 10,
+    plusoviki_threshold: int = 3
+) -> int:
+    """Подсчёт лидов в категории 'Прочее'"""
+    leads_count_query = select(
+        Lead.segment, func.count(Lead.id).label('cnt')
+    ).where(
+        Lead.status == LeadStatus.UNIQUE
+    ).group_by(Lead.segment)
+
+    result = await session.execute(leads_count_query)
+    total = 0
+
+    for segment, count in result.all():
+        if count < tail_threshold:
+            utc = 0
+            if other_type == "plusoviki" and utc >= plusoviki_threshold:
+                total += count
+            elif other_type == "regular" and utc < plusoviki_threshold:
+                total += count
+
+    return total
+
+
+async def get_other_leads_for_assignment(
+    session: AsyncSession,
+    other_type: str,
+    limit: int = 200,
+    tail_threshold: int = 10,
+    plusoviki_threshold: int = 3
+) -> List[Lead]:
+    """Получение лидов из категории 'Прочее'"""
+    leads_count_query = select(
+        Lead.segment, func.count(Lead.id).label('cnt')
+    ).where(
+        Lead.status == LeadStatus.UNIQUE
+    ).group_by(Lead.segment)
+
+    result = await session.execute(leads_count_query)
+    small_segments = []
+
+    for segment, count in result.all():
+        if count < tail_threshold:
+            utc = 0
+            if other_type == "plusoviki" and utc >= plusoviki_threshold:
+                small_segments.append(segment)
+            elif other_type == "regular" and utc < plusoviki_threshold:
+                small_segments.append(segment)
+
+    if not small_segments:
+        return []
+
+    query = select(Lead).where(
+        Lead.status == LeadStatus.UNIQUE,
+        Lead.segment.in_(small_segments)
+    ).order_by(Lead.created_at).limit(limit)
+
+    result = await session.execute(query)
+    return result.scalars().all()
+
+
 # =============================================================================
 # Город CRUD
 # =============================================================================
