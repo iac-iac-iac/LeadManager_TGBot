@@ -372,7 +372,7 @@ async def initialize_database(db_manager: DatabaseManager):
         
         if current < 8:
             # Импортируем модели напрямую
-            from ..models import City, Lead, LeadStatus
+            from .models import City, Lead, LeadStatus
             await _v8_module.migrate_v8(session, City, Lead, LeadStatus)
             await session.commit()
     
