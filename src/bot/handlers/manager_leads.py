@@ -586,10 +586,11 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
     other_type = data.get("other_type", "regular")
 
     if is_other:
+        # Для "Прочее" передаём segment чтобы получить лиды только из этого сегмента
         leads = await crud.get_other_leads_for_assignment(
             session,
             other_type=other_type,
-            segment=None,  # Для "Прочее" не фильтруем по сегменту (так как сегмент — это "📦 Прочее (Обыч.)")
+            segment=segment,  # ФИЛЬТР по выбранному сегменту!
             limit=count,
         )
     else:
