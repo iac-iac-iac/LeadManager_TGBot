@@ -301,8 +301,8 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
     await state.update_data(selected_city=city, selected_segment=segment)
 
     # Проверяем, это "Прочие" город
-    is_other_regular = selected_city and "Прочие (Обыч.)" in selected_city
-    is_other_plusoviki = selected_city and "Прочие (Плюсовики)" in selected_city
+    is_other_regular = city and "Прочие (Обыч.)" in city
+    is_other_plusoviki = city and "Прочие (Плюсовики)" in city
     is_other = is_other_regular or is_other_plusoviki
 
     # Удаляем предыдущее сообщение
