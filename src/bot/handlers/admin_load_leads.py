@@ -567,9 +567,9 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
         other_type = state_data.get("other_type", "regular")
 
         if is_other:
-            # Для "Прочее" используем специальную функцию
+            # НЕ передаём segment — это отображаемое название, а не реальный сегмент из БД.
             leads = await crud.get_other_leads_for_assignment(
-                session, other_type=other_type, segment=segment, limit=count
+                session, other_type=other_type, limit=count
             )
         else:
             leads = await crud.get_available_leads_for_assignment(
@@ -1204,7 +1204,7 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
         city = state_data.get("selected_city")
         count = override_count or state_data.get("lead_count", 0)
         
-        logger.info(f"bitrix_id={bitrix_id}, segment={segment}, city={city}, count={count}")
+        logger.info(f"bitrix_id={bitrix_id}, segment={segment}, city={city}, count={count}, is_other={is_other}")
         
         if not bitrix_id or not segment:
             logger.error(f"Нет данных: bitrix_id={bitrix_id}, segment={segment}")
@@ -1217,9 +1217,9 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
         other_type = state_data.get("other_type", "regular")
 
         if is_other:
-            # Для "Прочее" используем специальную функцию
+            # НЕ передаём segment — это отображаемое название, а не реальный сегмент из БД.
             leads = await crud.get_other_leads_for_assignment(
-                session, other_type=other_type, segment=segment, limit=count
+                session, other_type=other_type, limit=count
             )
         else:
             leads = await crud.get_available_leads_for_assignment(
