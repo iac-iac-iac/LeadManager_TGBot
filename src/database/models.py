@@ -137,11 +137,11 @@ class Lead(Base):
     )
 
     # Связи (с FK constraint)
+    # Одноколоночный индекс убран — покрывается составным idx_leads_manager_assigned_at
     manager_telegram_id = Column(
         String(50),
         ForeignKey('users.telegram_id', ondelete='SET NULL'),
-        nullable=True,
-        index=True
+        nullable=True
     )
     
     # Bitrix24 ID (с индексом для быстрого поиска)
