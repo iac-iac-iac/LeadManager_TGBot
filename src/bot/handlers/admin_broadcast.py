@@ -22,6 +22,7 @@ from ..messages.texts import (
 from ..keyboards.keyboard_factory import create_back_keyboard
 from ...database import crud
 from ...logger import get_logger
+from ...utils.html_utils import safe_delete_message
 
 logger = get_logger(__name__)
 
@@ -129,10 +130,7 @@ async def handle_broadcast_confirm(callback: CallbackQuery, state: FSMContext, s
             logger.warning(f"Не удалось отправить пользователю {user.telegram_id}: {e}")
     
     # Удаляем сообщение о начале
-    try:
-        await status_msg.delete()
-    except Exception:
-        pass
+    await safe_delete_message(status_msg)
     
     # Показываем результат
     await callback.message.answer(

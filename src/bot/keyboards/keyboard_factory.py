@@ -536,6 +536,52 @@ def parse_callback_data(callback_data: str) -> Dict[str, str]:
     }
 
 
+def safe_parse_callback_data(callback_data: str, expected_parts: int = 0) -> Dict[str, str] | None:
+    """
+    Безопасный парсинг callback_data с валидацией структуры.
+
+    Формат: "action:param1:param2:..."
+
+    Args:
+        callback_data: Строка callback_data
+        expected_parts: Ожидаемое количество параметров (0 = любое)
+
+    Returns:
+        {"action": str, "params": [str, ...]} или None при ошибке
+
+    Example:
+        parsed = safe_parse_callback_data(callback.data, expected_parts=1)
+        if parsed is None:
+            await callback.answer("⚠️ Некорректные данные", show_alert=True)
+            return
+        telegram_id = parsed["params"][0]
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    if not callback_data or not isinstance(callback_data, str):
+        _logger.warning(f"safe_parse_callback_data: пустые или некорректные данные: {callback_data!r}")
+        return None
+
+    try:
+        parts = callback_data.split(":")
+        action = parts[0]
+        params = parts[1:] if len(parts) > 1 else []
+
+        if expected_parts > 0 and len(params) < expected_parts:
+            _logger.warning(
+                f"safe_parse_callback_data: ожидалось {expected_parts} params, "
+                f"получено {len(params)} для данных {callback_data!r}"
+            )
+            return None
+
+        return {"action": action, "params": params}
+
+    except Exception as e:
+        _logger.warning(f"safe_parse_callback_data: ошибка парсинга {callback_data!r}: {e}")
+        return None
+
+
 # =============================================================================
 # Клавиатуры для тикетов (Tickets)
 # =============================================================================

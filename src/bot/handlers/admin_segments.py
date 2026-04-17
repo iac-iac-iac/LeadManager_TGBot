@@ -30,6 +30,7 @@ from ..keyboards.keyboard_factory import (
 from ...database import crud
 from ...database.models import Lead, LeadStatus, SegmentLock
 from ...logger import get_logger
+from ...utils.html_utils import safe_delete_message
 
 logger = get_logger(__name__)
 
@@ -173,10 +174,7 @@ async def handle_segments_page(callback: CallbackQuery, state: FSMContext):
         )
     except Exception:
         # Если сообщение нельзя редактировать - удаляем и создаём новое
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
+        await safe_delete_message(callback.message)
         
         await callback.message.answer(
             SEGMENTS_LIST.format(
@@ -308,10 +306,7 @@ async def handle_segment_manage(callback: CallbackQuery, session: AsyncSession, 
     city_text = f" + {city}" if city else ""
 
     # Удаляем предыдущее сообщение
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
 
     await callback.message.answer(
         SEGMENT_DETAIL.format(

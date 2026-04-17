@@ -44,6 +44,7 @@ from ...database.models import Lead, LeadStatus, User, UserRole
 from ...bitrix24.client import Bitrix24Client
 from ...bitrix24.leads import import_assigned_leads
 from ...logger import get_logger
+from ...utils.html_utils import safe_delete_message, format_html_safe
 
 logger = get_logger(__name__)
 
@@ -189,10 +190,7 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
     is_other = is_other_regular or is_other_plusoviki
 
     # Удаляем предыдущее сообщение
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass  # Сообщение уже удалено
+    await safe_delete_message(callback.message)
 
     if not cities:
         # Нет городов - сразу запрашиваем количество
@@ -226,7 +224,7 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
     keyboard = create_cities_keyboard(cities, segment, segment_index, prefix="select_city")
 
     await callback.message.answer(
-        SELECT_CITY.format(segment=segment),
+        format_html_safe(SELECT_CITY, segment=segment),
         reply_markup=keyboard
     )
     
@@ -252,10 +250,7 @@ async def handle_back_to_segments(callback: CallbackQuery, state: FSMContext, se
     keyboard = create_segments_keyboard(segments, prefix="select_segment")
 
     # Удаляем предыдущее сообщение и показываем новое
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
     
     await callback.message.answer(
         SELECT_SEGMENT,
@@ -306,10 +301,7 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
     is_other = is_other_regular or is_other_plusoviki
 
     # Удаляем предыдущее сообщение
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass  # Сообщение уже удалено
+    await safe_delete_message(callback.message)
 
     # Проверяем доступное количество
     if is_other:
@@ -495,7 +487,8 @@ async def _show_not_enough_leads(
         )
 
         await message.answer(
-            LEADS_NOT_ENOUGH.format(
+            format_html_safe(
+                LEADS_NOT_ENOUGH,
                 available=available_count,
                 requested=requested_count
             ),
@@ -528,7 +521,8 @@ async def show_lead_confirmation(
     city_text = city or "Все города"
     
     await message.answer(
-        LEADS_CONFIRM.format(
+        format_html_safe(
+            LEADS_CONFIRM,
             segment=segment,
             city=city_text,
             count=count
@@ -552,16 +546,13 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
     await callback.answer("⏳ Загрузка лидов в Bitrix24...")
 
     # Удаляем сообщение с кнопкой подтверждения чтобы нельзя было нажать повторно
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
     
-    # Отправляем сообщение о начале загрузки
+    # Отправляем сообщение о начале загрузки (best-effort)
     try:
         await callback.message.answer("⏳ <b>Загрузка лидов в Bitrix24...</b>\n\nЭто может занять несколько минут.")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Не удалось отправить сообщение о загрузке: {type(e).__name__}: {e}")
 
     telegram_id = str(callback.from_user.id)
 
@@ -572,10 +563,7 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
     count = int(data.get("leads_count", 0))
 
     if not segment or count == 0:
-        try:
-            await callback.message.answer("⚠️ Ошибка подтверждения")
-        except Exception:
-            pass
+        await callback.message.answer("⚠️ Ошибка подтверждения")
         await state.clear()
         return
 
@@ -601,13 +589,10 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         )
 
     if not leads:
-        try:
-            await callback.message.answer(
-                "⚠️ Лиды закончились пока вы выбирали.\n"
-                "Попробуйте другой сегмент."
-            )
-        except Exception:
-            pass
+        await callback.message.answer(
+            "⚠️ Лиды закончились пока вы выбирали.\n"
+            "Попробуйте другой сегмент."
+        )
         await state.clear()
         return
 
@@ -644,7 +629,8 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
     city_text = city or "Все города"
     try:
         await callback.message.answer(
-            LEADS_ISSUED.format(
+            format_html_safe(
+                LEADS_ISSUED,
                 count=assigned_count,
                 segment=segment,
                 city=city_text
@@ -656,7 +642,8 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         try:
             await callback.bot.send_message(
                 chat_id=telegram_id,
-                text=LEADS_ISSUED.format(
+                text=format_html_safe(
+                    LEADS_ISSUED,
                     count=assigned_count,
                     segment=segment,
                     city=city_text
@@ -678,10 +665,7 @@ async def handle_leads_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
     # Удаляем предыдущее сообщение
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
 
     await callback.message.answer(
         LEADS_CANCELLED,
@@ -701,10 +685,7 @@ async def handle_back_to_main(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
     # Удаляем предыдущее сообщение
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
 
     await callback.message.answer(
         MANAGER_MAIN_MENU,

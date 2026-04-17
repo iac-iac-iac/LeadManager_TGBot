@@ -20,6 +20,7 @@ from ..keyboards.keyboard_factory import (
 from ...database import crud
 from ...database.models import UserRole
 from ...logger import get_logger
+from ...utils.html_utils import format_html_safe
 
 logger = get_logger(__name__)
 
@@ -46,7 +47,8 @@ async def handle_pending_users_menu(callback: CallbackQuery, session: AsyncSessi
     keyboard = create_pending_users_keyboard(users_data)
 
     users_text = "\n".join([
-        PENDING_USER_ITEM.format(
+        format_html_safe(
+            PENDING_USER_ITEM,
             full_name=u.full_name,
             telegram=u.telegram_id,
             telegram_id=u.telegram_id
@@ -179,7 +181,7 @@ async def handle_user_reject(callback: CallbackQuery, session: AsyncSession):
     await crud.reject_user(session, telegram_id)
 
     await callback.message.answer(
-        PENDING_USER_REJECT_SUCCESS.format(full_name=user.full_name)
+        format_html_safe(PENDING_USER_REJECT_SUCCESS, full_name=user.full_name)
     )
 
     await callback.answer()

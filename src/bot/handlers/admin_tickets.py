@@ -31,9 +31,11 @@ from ..keyboards.keyboard_factory import (
     create_tickets_list_keyboard,
     create_ticket_action_keyboard,
     create_back_keyboard,
+    safe_parse_callback_data,
 )
 from ...database import crud
 from ...logger import get_logger
+from ...utils.html_utils import safe_delete_message
 
 logger = get_logger(__name__)
 
@@ -84,7 +86,11 @@ async def filter_tickets(callback: CallbackQuery, session: AsyncSession, state: 
     """
     try:
         # Получаем статус из callback_data
-        status = callback.data.split(":")[1]
+        parsed = safe_parse_callback_data(callback.data, expected_parts=1)
+        if parsed is None:
+            await callback.answer("⚠️ Некорректные данные", show_alert=True)
+            return
+        status = parsed["params"][0]
         
         # Маппинг статусов
         status_map = {
@@ -120,7 +126,11 @@ async def paginate_tickets(callback: CallbackQuery, session: AsyncSession, state
     """
     try:
         # Получаем номер страницы
-        page = int(callback.data.split(":")[1])
+        parsed = safe_parse_callback_data(callback.data, expected_parts=1)
+        if parsed is None:
+            await callback.answer("⚠️ Некорректные данные", show_alert=True)
+            return
+        page = int(parsed["params"][0])
         
         # Показываем страницу
         await show_tickets_page(callback, session, state, page)
@@ -195,7 +205,11 @@ async def view_ticket(callback: CallbackQuery, session: AsyncSession, state: FSM
     """
     try:
         # Получаем ID тикета
-        ticket_id = int(callback.data.split(":")[1])
+        parsed = safe_parse_callback_data(callback.data, expected_parts=1)
+        if parsed is None:
+            await callback.answer("⚠️ Некорректные данные", show_alert=True)
+            return
+        ticket_id = int(parsed["params"][0])
         
         # Получаем тикет
         ticket = await crud.get_ticket_by_id(session, ticket_id)
@@ -246,10 +260,7 @@ async def view_ticket(callback: CallbackQuery, session: AsyncSession, state: FSM
         keyboard = create_ticket_action_keyboard(ticket_id, ticket.status)
 
         # Удаляем предыдущее сообщение
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
+        await safe_delete_message(callback.message)
 
         await callback.message.answer(
             text,
@@ -276,7 +287,11 @@ async def start_respond(callback: CallbackQuery, state: FSMContext):
     """
     try:
         # Получаем ID тикета
-        ticket_id = int(callback.data.split(":")[1])
+        parsed = safe_parse_callback_data(callback.data, expected_parts=1)
+        if parsed is None:
+            await callback.answer("⚠️ Некорректные данные", show_alert=True)
+            return
+        ticket_id = int(parsed["params"][0])
         
         # Сохраняем ID в состоянии
         await state.update_data(responding_ticket_id=ticket_id)
@@ -377,9 +392,12 @@ async def change_ticket_status(callback: CallbackQuery, session: AsyncSession):
     """
     try:
         # Парсим callback_data
-        parts = callback.data.split(":")
-        ticket_id = int(parts[1])
-        new_status = parts[2]
+        parsed = safe_parse_callback_data(callback.data, expected_parts=2)
+        if parsed is None:
+            await callback.answer("⚠️ Некорректные данные", show_alert=True)
+            return
+        ticket_id = int(parsed["params"][0])
+        new_status = parsed["params"][1]
         
         # Получаем ID админа
         admin_id = str(callback.from_user.id)

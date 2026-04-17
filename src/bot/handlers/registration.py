@@ -26,6 +26,7 @@ from ...database import crud
 from ...database.models import User, UserRole, UserStatus, AsyncSession
 from ...config import Config
 from ...logger import get_logger
+from ...utils.html_utils import safe_delete_message
 
 logger = get_logger(__name__)
 
@@ -329,10 +330,7 @@ async def cmd_menu(message: Message, session: AsyncSession, config: Config):
     is_admin = user.role == UserRole.ADMIN or int(telegram_id) in config.admin_telegram_ids
     
     # Сначала удаляем команду /menu от пользователя
-    try:
-        await message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(message)
     
     # Показываем меню по роли
     if is_admin:

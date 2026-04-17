@@ -54,6 +54,10 @@ class SensitiveDataFilter(logging.Filter):
         
         # Телефоны в полях (phone=, mobile_phone=)
         (r'(phone|mobile_phone)[=:]\s*\+?\d{10,15}', r'\1=[PHONE_REDACTED]'),
+        # Любые международные номера (+7..., +1..., etc.) в произвольном тексте
+        (r'\+\d{10,15}', '[PHONE_REDACTED]'),
+        # Bitrix ID в произвольном контексте
+        (r'(?<!\w)bitrix_id[=:\s]+\d+', 'bitrix_id=[ID_REDACTED]'),
     ]
     
     def __init__(self, additional_patterns: List[tuple[str, str]] = None):

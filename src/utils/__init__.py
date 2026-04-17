@@ -6,6 +6,7 @@
 - callback_utils: Безопасная работа с callback данными (aiogram 3.x)
 - file_utils: Безопасная работа с файлами
 - datetime_utils: Timezone-aware datetime операции
+- html_utils: Безопасное HTML-экранирование в шаблонах Telegram
 """
 
 from .phone_utils import (
@@ -36,6 +37,15 @@ from .file_utils import (
     check_file_permissions,
     get_secure_temp_filename,
     cleanup_dangerous_chars,
+)
+
+from .html_utils import (
+    escape,
+    format_html_safe,
+    suppress_telegram_errors,
+    safe_delete_message,
+    safe_answer_callback,
+    safe_edit_or_answer,
 )
 
 from .datetime_utils import (
@@ -75,6 +85,14 @@ __all__ = [
     'validate_callback_data',
     'safe_parse_callback_data',
     'create_callback_data',
+
+    # HTML utils
+    'escape',
+    'format_html_safe',
+    'suppress_telegram_errors',
+    'safe_delete_message',
+    'safe_answer_callback',
+    'safe_edit_or_answer',
 
     # File utils
     'validate_filename',

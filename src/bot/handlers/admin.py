@@ -31,6 +31,7 @@ from ...bitrix24.client import get_bitrix24_client
 from ...bitrix24.duplicates import run_duplicate_check
 from ...config import get_config
 from ...logger import get_logger
+from ...utils.html_utils import safe_delete_message
 
 
 # =============================================================================
@@ -121,10 +122,7 @@ async def handle_import_csv_menu(callback: CallbackQuery, state: FSMContext, ses
 
     if not csv_files:
         # Удаляем предыдущее сообщение
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
+        await safe_delete_message(callback.message)
         
         await callback.message.answer(
             "📁 В папке uploads нет CSV файлов.\n\n"
@@ -134,10 +132,7 @@ async def handle_import_csv_menu(callback: CallbackQuery, state: FSMContext, ses
         return
 
     # Удаляем предыдущее сообщение
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
 
     # Формируем список
     files_text = "\n".join([f"📄 {f.name}" for f in csv_files[:10]])

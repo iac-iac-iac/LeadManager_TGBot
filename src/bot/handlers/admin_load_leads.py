@@ -50,6 +50,7 @@ from ...bitrix24.client import get_bitrix24_client
 from ...bitrix24.leads import import_assigned_leads
 from ...config import get_config
 from ...logger import get_logger
+from ...utils.html_utils import safe_answer_callback, safe_edit_or_answer, safe_delete_message, format_html_safe
 
 logger = get_logger(__name__)
 
@@ -126,24 +127,11 @@ async def managers_page(callback: CallbackQuery, state: FSMContext):
         # Показываем новую страницу (edit_text чтобы не удалять сообщение)
         keyboard = create_managers_list_keyboard(managers, page=new_page, page_size=10)
 
-        try:
-            await callback.message.edit_text(
-                ADMIN_LOAD_LEADS_SELECT_MANAGER,
-                reply_markup=keyboard
-            )
-        except Exception:
-            # Если edit не удался, отправляем новое сообщение
-            await callback.message.answer(
-                ADMIN_LOAD_LEADS_SELECT_MANAGER,
-                reply_markup=keyboard
-            )
+        await safe_edit_or_answer(callback, ADMIN_LOAD_LEADS_SELECT_MANAGER, reply_markup=keyboard)
 
     except Exception as e:
         logger.error(f"Ошибка пагинации менеджеров: {type(e).__name__}: {e}")
-        try:
-            await callback.answer("⚠️ Ошибка", show_alert=True)
-        except Exception:
-            pass
+        await safe_answer_callback(callback, "⚠️ Ошибка", show_alert=True)
 
 
 # =============================================================================
@@ -198,17 +186,11 @@ async def handle_manager_select(callback: CallbackQuery, state: FSMContext, sess
         )
 
             # Отвечаем на callback
-        try:
-            await callback.answer()
-        except Exception:
-            pass
+        await safe_answer_callback(callback)
 
     except Exception as e:
         logger.error(f"Ошибка выбора менеджера: {type(e).__name__}: {e}")
-        try:
-            await callback.answer("⚠️ Ошибка", show_alert=True)
-        except Exception:
-            pass
+        await safe_answer_callback(callback, "⚠️ Ошибка", show_alert=True)
 
 
 # =============================================================================
@@ -236,24 +218,11 @@ async def handle_leads_segment_page(callback: CallbackQuery, state: FSMContext, 
         # Показываем новую страницу
         keyboard = create_segments_load_keyboard(segments, page=new_page, page_size=10)
 
-        try:
-            await callback.message.edit_text(
-                ADMIN_LOAD_LEADS_SELECT_SEGMENT,
-                reply_markup=keyboard
-            )
-        except Exception:
-            # Если edit не удался, отправляем новое сообщение
-            await callback.message.answer(
-                ADMIN_LOAD_LEADS_SELECT_SEGMENT,
-                reply_markup=keyboard
-            )
+        await safe_edit_or_answer(callback, ADMIN_LOAD_LEADS_SELECT_SEGMENT, reply_markup=keyboard)
 
     except Exception as e:
         logger.error(f"Ошибка пагинации сегментов: {type(e).__name__}: {e}")
-        try:
-            await callback.answer("⚠️ Ошибка", show_alert=True)
-        except Exception:
-            pass
+        await safe_answer_callback(callback, "⚠️ Ошибка", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("load_bitrix_segment_page:"))
@@ -277,24 +246,11 @@ async def handle_bitrix_segment_page(callback: CallbackQuery, state: FSMContext,
         # Показываем новую страницу
         keyboard = create_segments_load_keyboard(segments, page=new_page, page_size=10, prefix="load_bitrix_segment")
 
-        try:
-            await callback.message.edit_text(
-                ADMIN_LOAD_LEADS_SELECT_SEGMENT,
-                reply_markup=keyboard
-            )
-        except Exception:
-            # Если edit не удался, отправляем новое сообщение
-            await callback.message.answer(
-                ADMIN_LOAD_LEADS_SELECT_SEGMENT,
-                reply_markup=keyboard
-            )
+        await safe_edit_or_answer(callback, ADMIN_LOAD_LEADS_SELECT_SEGMENT, reply_markup=keyboard)
 
     except Exception as e:
         logger.error(f"Ошибка пагинации сегментов: {type(e).__name__}: {e}")
-        try:
-            await callback.answer("⚠️ Ошибка", show_alert=True)
-        except Exception:
-            pass
+        await safe_answer_callback(callback, "⚠️ Ошибка", show_alert=True)
 
 
 # =============================================================================
@@ -372,7 +328,7 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
         keyboard = create_cities_load_keyboard(cities, segment_name, segment_index)
         
         await callback.message.answer(
-            ADMIN_LOAD_LEADS_SELECT_CITY.format(segment=segment_name),
+            format_html_safe(ADMIN_LOAD_LEADS_SELECT_CITY, segment=segment_name),
             reply_markup=keyboard
         )
         
@@ -546,17 +502,14 @@ async def confirm_load(callback: CallbackQuery, state: FSMContext, session: Asyn
     await callback.answer("⏳ Загрузка лидов в Bitrix24...")
     
     # Удаляем сообщение с кнопкой подтверждения чтобы нельзя было нажать повторно
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
     
-    # Отправляем сообщение о начале загрузки
+    # Отправляем сообщение о начале загрузки (best-effort)
     try:
         await callback.message.answer("⏳ <b>Загрузка лидов в Bitrix24...</b>\n\nЭто может занять несколько минут.")
-    except Exception:
-        pass
-    
+    except Exception as e:
+        logger.warning(f"Не удалось отправить сообщение о загрузке: {type(e).__name__}: {e}")
+
     # Проверяем состояние - если это Bitrix24 ID, вызываем другой обработчик
     current_state = await state.get_state()
     if current_state in AdminLoadLeadsBitrixStates.__all_states__:
@@ -573,16 +526,13 @@ async def confirm_bitrix_load_direct(callback: CallbackQuery, state: FSMContext,
     await callback.answer("⏳ Загрузка лидов в Bitrix24...")
     
     # Удаляем сообщение с кнопкой подтверждения чтобы нельзя было нажать повторно
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
     
-    # Отправляем сообщение о начале загрузки
+    # Отправляем сообщение о начале загрузки (best-effort)
     try:
         await callback.message.answer("⏳ <b>Загрузка лидов в Bitrix24...</b>\n\nЭто может занять несколько минут.")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Не удалось отправить сообщение о загрузке: {type(e).__name__}: {e}")
 
     await process_bitrix_load(callback, state, session, None)
 
@@ -705,17 +655,10 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
         # Показываем сообщение о постановке в очередь
         try:
             # Сначала пытаемся удалить сообщение о начале загрузки
-            try:
-                await target.message.delete()
-            except Exception:
-                pass
+            await safe_delete_message(target.message)
             
             await target.answer(
-                IMPORT_QUEUED.format(
-                    count=len(lead_ids),
-                    segment=segment,
-                    city=city or "Все города"
-                ),
+                format_html_safe(IMPORT_QUEUED, count=len(lead_ids), segment=segment, city=city or "Все города"),
                 reply_markup=create_back_keyboard("admin_menu")
             )
         except Exception as e:
@@ -724,11 +667,7 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
             try:
                 await target.bot.send_message(
                     chat_id=target.from_user.id,
-                    text=IMPORT_QUEUED.format(
-                        count=len(lead_ids),
-                        segment=segment,
-                        city=city or "Все города"
-                    ),
+                    text=format_html_safe(IMPORT_QUEUED, count=len(lead_ids), segment=segment, city=city or "Все города"),
                     reply_markup=create_back_keyboard("admin_menu")
                 )
             except Exception as e2:
@@ -771,10 +710,7 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
         # Пробуем отправить ошибку
         try:
             # Сначала пытаемся удалить сообщение о начале загрузки
-            try:
-                await target.message.delete()
-            except Exception:
-                pass
+            await safe_delete_message(target.message)
             
             await target.answer(
                 ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
@@ -787,8 +723,8 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
                     text=ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
                     reply_markup=create_back_keyboard("admin_menu")
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.warning(f"Финальный fallback не удался: {type(_e).__name__}: {_e}")
         
         await state.clear()
 
@@ -803,10 +739,7 @@ async def cancel_load(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     
     # Удаляем предыдущее сообщение
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
     
     await callback.message.answer(
         "❌ Загрузка отменена",
@@ -855,10 +788,7 @@ async def back_to_segment_select(callback: CallbackQuery, state: FSMContext, ses
         keyboard = create_segments_load_keyboard(segments, page=0, page_size=10)
 
         # Удаляем предыдущее сообщение
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
+        await safe_delete_message(callback.message)
 
         await callback.message.answer(
             ADMIN_LOAD_LEADS_SELECT_SEGMENT,
@@ -885,10 +815,7 @@ async def admin_load_leads_bitrix_menu(callback: CallbackQuery, state: FSMContex
     """
     try:
         # Удаляем предыдущее сообщение
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
+        await safe_delete_message(callback.message)
         
         await state.set_state(AdminLoadLeadsBitrixStates.ENTER_BITRIX_ID)
         
@@ -1038,8 +965,8 @@ async def handle_bitrix_segment_select(callback: CallbackQuery, state: FSMContex
             # Удаляем предыдущее сообщение
             try:
                 await callback.message.delete()
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.warning(f"Финальный fallback не удался: {type(_e).__name__}: {_e}")
 
             await callback.message.answer(
                 f"📊 Доступно лидов: {available_count}\n\n"
@@ -1058,16 +985,13 @@ async def handle_bitrix_segment_select(callback: CallbackQuery, state: FSMContex
         back_callback = state_data.get("back_callback", "admin_menu")
         
         # Удаляем предыдущее сообщение
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
+        await safe_delete_message(callback.message)
 
         # Показываем города с правильным префиксом и back_callback
         keyboard = create_cities_load_keyboard(cities, segment_name, segment_index, prefix="load_bitrix_city", back_callback=back_callback)
         
         await callback.message.answer(
-            ADMIN_LOAD_LEADS_SELECT_CITY.format(segment=segment_name),
+            format_html_safe(ADMIN_LOAD_LEADS_SELECT_CITY, segment=segment_name),
             reply_markup=keyboard
         )
         
@@ -1139,10 +1063,7 @@ async def handle_bitrix_city_select(callback: CallbackQuery, state: FSMContext, 
         back_callback = state_data.get("back_callback", "admin_menu")
         
         # Удаляем предыдущее сообщение
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
+        await safe_delete_message(callback.message)
         
         await callback.message.answer(
             f"📊 Доступно лидов: {available_count}\n\n"
@@ -1211,12 +1132,7 @@ async def handle_bitrix_count_input(message: Message, state: FSMContext, session
         # Достаточно лидов - показываем подтверждение
         await state.update_data(lead_count=count)
         
-        # Удаляем предыдущее сообщение
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        
+        await safe_delete_message(message)
         await show_bitrix_confirm(message, state)
 
     except Exception as e:
@@ -1259,10 +1175,7 @@ async def show_bitrix_confirm(target, state: FSMContext):
 async def confirm_bitrix_load(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Подтверждение загрузки на Bitrix24 ID"""
     # Удаляем предыдущее сообщение
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
     
     await process_bitrix_load(callback, state, session, None)
 
@@ -1271,10 +1184,7 @@ async def confirm_bitrix_load(callback: CallbackQuery, state: FSMContext, sessio
 async def confirm_bitrix_load_available(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Подтверждение загрузки доступного количества на Bitrix24 ID"""
     # Удаляем предыдущее сообщение
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(callback.message)
     
     parsed = callback.data.split(":")
     available_count = int(parsed[1])
@@ -1404,10 +1314,7 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
         # Показываем успех (с обработкой ошибок callback)
         try:
             # Сначала пытаемся удалить сообщение о начале загрузки
-            try:
-                await target.message.delete()
-            except Exception:
-                pass
+            await safe_delete_message(target.message)
             
             await target.answer(
                 ADMIN_LOAD_LEADS_BITRIX_SUCCESS.format(
@@ -1449,10 +1356,7 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
         # Пробуем отправить ошибку
         try:
             # Сначала пытаемся удалить сообщение о начале загрузки
-            try:
-                await target.message.delete()
-            except Exception:
-                pass
+            await safe_delete_message(target.message)
             
             await target.answer(
                 ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
@@ -1465,7 +1369,7 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
                     text=ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
                     reply_markup=create_back_keyboard("admin_menu")
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.warning(f"Финальный fallback не удался: {type(_e).__name__}: {_e}")
         
         await state.clear()
