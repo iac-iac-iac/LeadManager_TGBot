@@ -213,18 +213,18 @@ class NotificationService:
         admin_ids: List[str]
     ) -> dict:
         """
-        Рассылка уведомлений админам
-        
+        Рассылка уведомлений админам.
+
         Args:
             session: Сессия БД
             message: Текст сообщения
             admin_ids: Список Telegram ID админов
-            
+
         Returns:
             Статистика: {sent: int, failed: int}
         """
         stats = {"sent": 0, "failed": 0}
-        
+
         for admin_id in admin_ids:
             try:
                 await self.bot.send_message(
@@ -237,5 +237,75 @@ class NotificationService:
             except Exception as e:
                 stats["failed"] += 1
                 logger.error(f"Ошибка отправки админу {admin_id}: {type(e).__name__}: {e}")
-        
+
         return stats
+
+    async def notify_manager_leads_queued(
+        self,
+        manager_telegram_id: str,
+        admin_name: str,
+        leads_count: int,
+        segment: str,
+        city: str | None
+    ) -> bool:
+        """
+        Уведомление менеджера о постановке лидов в очередь на импорт.
+
+        Returns:
+            True если успешно отправлено.
+        """
+        city_text = city or "Все города"
+        text = (
+            f"📦 <b>Лиды поставлены в очередь на импорт!</b>\n\n"
+            f"👨‍💼 Администратор: {admin_name}\n"
+            f"📊 Количество: {leads_count}\n"
+            f"📁 Сегмент: {segment}\n"
+            f"🏙 Город: {city_text}\n\n"
+            f"⏳ Вы получите уведомление когда импорт завершится."
+        )
+        try:
+            await self.bot.send_message(
+                chat_id=manager_telegram_id,
+                text=text,
+                parse_mode="HTML"
+            )
+            logger.info(
+                f"Менеджер {manager_telegram_id} уведомлён о постановке "
+                f"в очередь {leads_count} лидов"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Не удалось уведомить менеджера {manager_telegram_id}: {e}")
+            return False
+
+    async def notify_manager_leads_imported(
+        self,
+        manager_telegram_id: str,
+        leads_count: int,
+        imported_count: int,
+        error_count: int = 0
+    ) -> bool:
+        """
+        Уведомление менеджера о завершении импорта лидов.
+
+        Returns:
+            True если успешно отправлено.
+        """
+        text = (
+            f"✅ <b>Импорт лидов завершён!</b>\n\n"
+            f"📊 Всего лидов: {leads_count}\n"
+            f"✅ Импортировано: {imported_count}\n"
+        )
+        if error_count:
+            text += f"❌ Ошибок: {error_count}\n"
+
+        try:
+            await self.bot.send_message(
+                chat_id=manager_telegram_id,
+                text=text,
+                parse_mode="HTML"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Не удалось уведомить менеджера {manager_telegram_id}: {e}")
+            return False
