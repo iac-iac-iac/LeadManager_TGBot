@@ -175,7 +175,12 @@ def register_handlers(dp: Dispatcher, db_manager: DatabaseManager, config: Confi
     from src.bot.handlers.manager_stats import router as manager_stats_router
     from src.bot.handlers.admin import router as admin_router
     from src.bot.handlers.admin_segments import router as admin_segments_router
-    from src.bot.handlers.admin_handlers import router as admin_handlers_router
+    # admin_handlers разбит на отдельные файлы по доменам:
+    from src.bot.handlers.admin_duplicate_check import router as admin_dup_router
+    from src.bot.handlers.admin_stats import router as admin_stats_router
+    from src.bot.handlers.admin_pending_users import router as admin_pending_users_router
+    from src.bot.handlers.admin_cleanup import router as admin_cleanup_router
+    from src.bot.handlers.admin_manager_stats import router as admin_manager_stats_router
     from src.bot.handlers.feedback import router as feedback_router
     from src.bot.handlers.admin_tickets import router as admin_tickets_router
     from src.bot.handlers.admin_bot_control import router as bot_control_router
@@ -198,7 +203,13 @@ def register_handlers(dp: Dispatcher, db_manager: DatabaseManager, config: Confi
     dp.include_router(manager_stats_router)
     dp.include_router(admin_router)
     dp.include_router(admin_segments_router)
-    dp.include_router(admin_handlers_router)
+    # Новые разбитые роутеры (вместо admin_handlers_router)
+    dp.include_router(admin_dup_router)
+    dp.include_router(admin_stats_router)
+    dp.include_router(admin_pending_users_router)
+    # ВАЖНО: cleanup_confirm: регистрируется раньше cleanup_ (более специфичный фильтр)
+    dp.include_router(admin_cleanup_router)
+    dp.include_router(admin_manager_stats_router)
     dp.include_router(feedback_router)
     dp.include_router(admin_tickets_router)
     dp.include_router(bot_control_router)
