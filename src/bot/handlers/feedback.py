@@ -119,8 +119,6 @@ async def confirm_feedback(callback: CallbackQuery, state: FSMContext, session: 
             message=message_text
         )
 
-        await session.commit()
-
         logger.info(f"Создан тикет #{ticket.id} от менеджера {callback.from_user.id}")
 
         # Отправляем подтверждение менеджеру

@@ -171,7 +171,6 @@ async def handle_start_registration(message: Message, session: AsyncSession, con
                 role=UserRole.ADMIN,
                 status=UserStatus.ACTIVE
             )
-            await session.commit()
 
             logger.info(f"Администратор автоматически зарегистрирован: {full_name} (Telegram: {telegram_id})")
 
@@ -182,7 +181,6 @@ async def handle_start_registration(message: Message, session: AsyncSession, con
             return
 
         except Exception as e:
-            await session.rollback()
             logger.error(f"Ошибка при автоматической регистрации админа {telegram_id}: {type(e).__name__}: {e}")
             await message.answer("⚠️ Произошла ошибка при регистрации. Попробуйте позже.")
             return
@@ -233,8 +231,6 @@ async def handle_registration_name(message: Message, state: FSMContext, session:
             role=UserRole.MANAGER,
             status=UserStatus.PENDING_APPROVAL
         )
-
-        await session.commit()
 
         logger.info(f"Создана заявка на регистрацию: {full_name} (Telegram: {telegram_id})")
 

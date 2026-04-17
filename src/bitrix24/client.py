@@ -179,9 +179,17 @@ class Bitrix24Client:
                 session = await self._get_session()
                 
                 async with session.post(url, json=params, proxy=proxy) as response:
-                    result = await response.json()
+                    # Проверяем HTTP статус перед парсингом JSON
+                    if response.status >= 400:
+                        text = await response.text()
+                        raise Bitrix24Error(
+                            f"HTTP {response.status}: {text[:200]}",
+                            response.status
+                        )
+
+                    result = await response.json(content_type=None)
                     
-                    # Проверяем на ошибки
+                    # Проверяем на ошибки API
                     if "error" in result:
                         error_msg = result.get("error_description", result.get("error", "Unknown error"))
                         raise Bitrix24Error(error_msg, result.get("error_code"))

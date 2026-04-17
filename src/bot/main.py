@@ -93,52 +93,47 @@ def init_bot(config: Config) -> Bot:
 # Обработчики команд
 # =============================================================================
 
-async def cmd_start(message: Message, session_factory, config: Config):
+async def cmd_start(message: Message, session: AsyncSession, config: Config):
     """
     Обработчик команды /start
-    
-    Регистрация пользователя или показ главного меню
+
+    Регистрация пользователя или показ главного меню.
+    Использует session из DatabaseSessionMiddleware.
     """
-    from sqlalchemy.ext.asyncio import AsyncSession
-    
     telegram_id = str(message.from_user.id)
-    full_name = message.from_user.full_name or ""
-    username = message.from_user.username
-    
-    async with session_factory() as session:
-        # Проверяем пользователя
-        user = await crud.get_user_by_telegram_id(session, telegram_id)
-        
-        if not user:
-            # Новый пользователь - показываем меню (регистрация через handlers)
+
+    # Проверяем пользователя (сессия уже открыта middleware)
+    user = await crud.get_user_by_telegram_id(session, telegram_id)
+
+    if not user:
+        # Новый пользователь - показываем меню (регистрация через handlers)
+        await message.answer(
+            "👋 Привет! Я бот для управления холодными лидами.\n\n"
+            "Для начала работы нажмите кнопку в меню.",
+            reply_markup=create_manager_main_menu()
+        )
+        return
+
+    # Пользователь уже зарегистрирован
+    if user.status == UserStatus.ACTIVE:
+        is_admin = user.role == UserRole.ADMIN or int(telegram_id) in config.admin_telegram_ids
+
+        if is_admin:
             await message.answer(
-                "👋 Привет! Я бот для управления холодными лидами.\n\n"
-                "Для начала работы нажмите кнопку в меню.",
+                ADMIN_MAIN_MENU,
+                reply_markup=create_admin_main_menu()
+            )
+        else:
+            await message.answer(
+                MANAGER_MAIN_MENU,
                 reply_markup=create_manager_main_menu()
             )
-            return
-        
-        # Пользователь уже зарегистрирован
-        if user.status == UserStatus.ACTIVE:
-            # Активный пользователь - показываем меню по роли
-            is_admin = user.role == UserRole.ADMIN or int(telegram_id) in config.admin_telegram_ids
-            
-            if is_admin:
-                await message.answer(
-                    ADMIN_MAIN_MENU,
-                    reply_markup=create_admin_main_menu()
-                )
-            else:
-                await message.answer(
-                    MANAGER_MAIN_MENU,
-                    reply_markup=create_manager_main_menu()
-                )
-        else:
-            # Ожидает подтверждения или отклонен
-            await message.answer(
-                f"Ваш статус: {user.status.value}\n"
-                "Ожидайте подтверждения администратора."
-            )
+    else:
+        # Ожидает подтверждения или отклонен
+        await message.answer(
+            f"Ваш статус: {user.status.value}\n"
+            "Ожидайте подтверждения администратора."
+        )
 
 
 async def cmd_help(message: Message):
@@ -262,8 +257,9 @@ async def main():
     dp.callback_query.middleware(rate_limit_middleware)
 
     # 3. AccessMiddleware - проверяет пользователя и добавляет user/is_admin/is_registered
-    dp.message.middleware(AccessMiddleware(session_factory, config.admin_telegram_ids))
-    dp.callback_query.middleware(AccessMiddleware(session_factory, config.admin_telegram_ids))
+    #    Использует data["session"] от DatabaseSessionMiddleware (одна сессия на запрос)
+    dp.message.middleware(AccessMiddleware(config.admin_telegram_ids))
+    dp.callback_query.middleware(AccessMiddleware(config.admin_telegram_ids))
 
     # 4. BotStatusMiddleware - проверяет статус бота и блокирует обычных пользователей при остановке
     from src.bot.middleware.bot_status import BotStatusMiddleware

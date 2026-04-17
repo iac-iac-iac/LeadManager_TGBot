@@ -1,17 +1,15 @@
 """
 Middleware для проверки доступа и прав пользователя
 """
-from typing import Callable, Dict, Any, Awaitable, Optional
+import asyncio
+from typing import Callable, Dict, Any, Awaitable
 
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery, TelegramObject
-from aiogram.handlers import CallbackQueryHandler
-
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import update
 
 from ...database import crud
-from ...database.models import User, UserRole, UserStatus
+from ...database.models import UserRole, UserStatus
 from ...logger import get_logger
 
 logger = get_logger(__name__)
@@ -19,25 +17,26 @@ logger = get_logger(__name__)
 
 class AccessMiddleware(BaseMiddleware):
     """
-    Middleware для проверки доступа пользователя
-    
+    Middleware для проверки доступа пользователя.
+
+    Использует data["session"], созданную DatabaseSessionMiddleware,
+    чтобы не открывать вторую сессию на тот же запрос.
+
     Проверяет:
     - Зарегистрирован ли пользователь
     - Статус пользователя (ACTIVE, PENDING, REJECTED)
     - Роль (admin, manager)
     """
-    
-    def __init__(self, session_factory, admin_ids: list[int]):
+
+    def __init__(self, admin_ids: list[int]):
         """
         Инициализация middleware
-        
+
         Args:
-            session_factory: Фабрика сессий БД
-            admin_ids: Список Telegram ID админов
+            admin_ids: Список Telegram ID админов из конфига
         """
-        self.session_factory = session_factory
         self.admin_ids = admin_ids
-    
+
     async def __call__(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
@@ -46,70 +45,69 @@ class AccessMiddleware(BaseMiddleware):
     ) -> Any:
         """
         Вызов middleware
-        
+
         Args:
             handler: Обработчик
             event: Событие (Message или CallbackQuery)
-            data: Данные контекста
-            
+            data: Данные контекста (содержит data["session"] от DatabaseSessionMiddleware)
+
         Returns:
             Результат обработчика или None
         """
-        # Получаем пользователя из события
-        if isinstance(event, Message):
-            telegram_user = event.from_user
-        elif isinstance(event, CallbackQuery):
+        if isinstance(event, (Message, CallbackQuery)):
             telegram_user = event.from_user
         else:
             return await handler(event, data)
-        
+
         telegram_id = str(telegram_user.id)
-        username = telegram_user.username
         full_name = telegram_user.full_name or ""
-        
-        # Получаем сессию
-        async with self.session_factory() as session:
-            # Проверяем пользователя в БД
-            user = await crud.get_user_by_telegram_id(session, telegram_id)
 
-            if not user:
-                # Пользователь не зарегистрирован
-                data["user"] = None
-                data["is_admin"] = False
-                data["is_registered"] = False
-                logger.debug(f"Пользователь {telegram_id} не найден в БД")
-            else:
-                data["user"] = user
-                data["is_admin"] = user.role == UserRole.ADMIN
-                # Проверяем статус - ACTIVE означает зарегистрирован
-                data["is_registered"] = user.status == UserStatus.ACTIVE
-                logger.debug(f"Пользователь {telegram_id}: status={user.status}, is_registered={data['is_registered']}")
+        # Используем сессию, уже открытую DatabaseSessionMiddleware
+        session: AsyncSession = data["session"]
 
-                # Проверяем, не изменилось ли имя (обновляем через CRUD функцию)
-                if user.full_name != full_name and full_name:
-                    # Retry с exponential backoff при блокировке БД (5 попыток)
-                    import asyncio
-                    for attempt in range(5):
-                        try:
-                            await crud.update_user_name(session, telegram_id, full_name[:200])
+        user = await crud.get_user_by_telegram_id(session, telegram_id)
+
+        if not user:
+            data["user"] = None
+            data["is_admin"] = False
+            data["is_registered"] = False
+            logger.debug(f"Пользователь {telegram_id} не найден в БД")
+        else:
+            data["user"] = user
+            data["is_admin"] = user.role == UserRole.ADMIN
+            data["is_registered"] = user.status == UserStatus.ACTIVE
+            logger.debug(
+                f"Пользователь {telegram_id}: status={user.status}, "
+                f"is_registered={data['is_registered']}"
+            )
+
+            # Обновляем имя если изменилось (с retry при блокировке SQLite)
+            if user.full_name != full_name and full_name:
+                for attempt in range(5):
+                    try:
+                        await crud.update_user_name(session, telegram_id, full_name[:200])
+                        break
+                    except Exception as e:
+                        if "database is locked" in str(e) and attempt < 4:
+                            wait_time = 0.1 * (2 ** attempt)
+                            logger.debug(
+                                f"БД заблокирована, попытка {attempt + 1}/5 через {wait_time}с"
+                            )
+                            await asyncio.sleep(wait_time)
+                        else:
+                            logger.warning(
+                                f"Не удалось обновить имя (попытка {attempt + 1}/5): {e}"
+                            )
                             break
-                        except Exception as e:
-                            if "database is locked" in str(e) and attempt < 4:
-                                wait_time = 0.1 * (2 ** attempt)  # 0.1с, 0.2с, 0.4с, 0.8с, 1.6с
-                                logger.debug(f"БД заблокирована, попытка {attempt+1}/5 через {wait_time}с")
-                                await asyncio.sleep(wait_time)
-                            else:
-                                logger.warning(f"Не удалось обновить имя (попытка {attempt+1}/5): {e}")
-                                break
 
-            # Проверяем админов по ID из конфига (только для superadmin доступа)
-            if int(telegram_id) in self.admin_ids:
-                # Если пользователь ещё не админ в БД, логируем это
-                if not data["is_admin"]:
-                    logger.warning(f"Admin ID из конфига не совпадает с ролью в БД: {telegram_id}")
-                data["is_admin"] = True
+        # Суперадмины из конфига всегда получают is_admin=True
+        if int(telegram_id) in self.admin_ids:
+            if not data["is_admin"]:
+                logger.warning(
+                    f"Admin ID из конфига не совпадает с ролью в БД: {telegram_id}"
+                )
+            data["is_admin"] = True
 
-        # Продолжаем обработку
         return await handler(event, data)
 
 

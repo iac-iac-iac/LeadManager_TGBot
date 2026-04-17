@@ -113,12 +113,10 @@ async def handle_city_reject(message: Message, session: AsyncSession):
 
     # Сначала пробуем удалить из pending городов
     result = await reject_pending_city(session, city_name)
-    await session.commit()
 
     if result.get("deleted_leads", 0) == 0:
         # Если не найдено в pending, пробуем удалить из одобренных городов
         result = await delete_approved_city(session, city_name)
-        await session.commit()
 
         if not result.get("city_found", False):
             await message.answer(
@@ -196,7 +194,6 @@ async def handle_city_approve(message: Message, session: AsyncSession):
 
     # Одобряем город
     result = await approve_pending_city(session, found_city, utc_offset)
-    await session.commit()
 
     await message.answer(
         CITY_APPROVED.format(

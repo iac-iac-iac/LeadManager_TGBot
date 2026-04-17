@@ -348,7 +348,6 @@ async def handle_bitrix_id_input(message: Message, state: FSMContext, session: A
         return
 
     await crud.approve_user(session, telegram_id, bitrix24_user_id=bitrix24_user_id if bitrix24_user_id > 0 else None)
-    await session.commit()
 
     await message.answer(
         f"✅ Менеджер {user.full_name} подтверждён!\n"
@@ -385,7 +384,6 @@ async def handle_user_reject(callback: CallbackQuery, session: AsyncSession):
     
     # Отклоняем
     await crud.reject_user(session, telegram_id)
-    await session.commit()
     
     await callback.message.answer(
         PENDING_USER_REJECT_SUCCESS.format(full_name=user.full_name)
@@ -420,9 +418,8 @@ async def handle_cleanup_confirm(callback: CallbackQuery, session: AsyncSession)
     try:
         stats = await run_cleanup(session, cleanup_type)
 
-        # Flush перед commit для применения DELETE запросов
+        # Flush для применения DELETE запросов в текущей сессии
         await session.flush()
-        await session.commit()
 
         count = sum(stats.values())
 

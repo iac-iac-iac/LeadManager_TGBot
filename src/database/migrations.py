@@ -326,15 +326,16 @@ async def migration_v6_create_bot_status_table(conn):
 async def rollback_migration(db_manager: DatabaseManager, target_version: int):
     """
     Откат миграции до указанной версии
-    
+
     Args:
         db_manager: Менеджер базы данных
-        target_version: Целевая версия
+        target_version: Целевая версия (только доверенные числовые значения)
     """
-    # В продакшене здесь был бы код отката
-    # Для простоты просто удаляем таблицы и создаем заново
     async with db_manager.engine.begin() as conn:
-        await conn.execute(text(f"DELETE FROM schema_migrations WHERE version > {target_version}"))
+        await conn.execute(
+            text("DELETE FROM schema_migrations WHERE version > :v"),
+            {"v": target_version}
+        )
 
 
 async def get_migration_status(db_manager: DatabaseManager) -> Tuple[int, bool]:

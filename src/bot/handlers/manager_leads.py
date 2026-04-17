@@ -564,14 +564,12 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         pass
 
     telegram_id = str(callback.from_user.id)
-    parsed = parse_callback_data(callback.data)
 
-    count = int(parsed["params"][0]) if parsed["params"] else 0
-
-    # Получаем данные из FSM
+    # Берём count из FSM state (а не из callback_data) — защита от подмены через старую кнопку
     data = await state.get_data()
     segment = data.get("selected_segment")
     city = data.get("selected_city")
+    count = int(data.get("leads_count", 0))
 
     if not segment or count == 0:
         try:
@@ -615,7 +613,19 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
 
     # Назначаем лиды менеджеру
     lead_ids = [lead.id for lead in leads]
-    await crud.assign_leads_to_manager(session, lead_ids, telegram_id)
+    assigned_count = await crud.assign_leads_to_manager(session, lead_ids, telegram_id)
+
+    if assigned_count == 0:
+        # Все лиды уже были разобраны другим менеджером (гонка)
+        try:
+            await callback.message.answer(
+                "⚠️ Лиды закончились пока вы выбирали.\n"
+                "Попробуйте другой сегмент."
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось отправить ошибку гонки: {e}")
+        await state.clear()
+        return
 
     # Импортируем в Bitrix24
     user = await crud.get_user_by_telegram_id(session, telegram_id)
@@ -628,14 +638,14 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         bitrix24_user_id
     )
 
-    await session.commit()
+    # Commit происходит автоматически в DatabaseSessionMiddleware
 
-    # Отправляем подтверждение
+    # Отправляем подтверждение с фактическим количеством
     city_text = city or "Все города"
     try:
         await callback.message.answer(
             LEADS_ISSUED.format(
-                count=len(leads),
+                count=assigned_count,
                 segment=segment,
                 city=city_text
             ),
@@ -643,24 +653,23 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         )
     except Exception as e:
         logger.error(f"Не удалось отправить подтверждение: {type(e).__name__}: {e}")
-        # Пробуем отправить новым сообщением если callback истёк
         try:
             await callback.bot.send_message(
                 chat_id=telegram_id,
                 text=LEADS_ISSUED.format(
-                    count=len(leads),
+                    count=assigned_count,
                     segment=segment,
                     city=city_text
                 ),
                 reply_markup=create_manager_main_menu()
             )
-        except Exception:
-            pass
+        except Exception as e2:
+            logger.warning(f"Не удалось отправить сообщение напрямую: {e2}")
 
     # Очищаем состояние
     await state.clear()
 
-    logger.info(f"Менеджер {telegram_id} получил {len(leads)} лидов ({segment}, {city})")
+    logger.info(f"Менеджер {telegram_id} получил {assigned_count} лидов ({segment}, {city})")
 
 
 @router.callback_query(F.data == "cancel_leads")

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
 import json
 
-from sqlalchemy import select, update, delete, func, and_, or_
+from sqlalchemy import select, update, delete, func, and_, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -627,7 +627,9 @@ async def get_user_by_full_name(
 async def get_pending_users(session: AsyncSession) -> List[User]:
     """Получение пользователей, ожидающих подтверждения"""
     result = await session.execute(
-        select(User).where(User.status == UserStatus.PENDING_APPROVAL)
+        select(User)
+        .where(User.status == UserStatus.PENDING_APPROVAL)
+        .order_by(User.registered_at)
     )
     return result.scalars().all()
 
@@ -1147,86 +1149,6 @@ async def get_segments_with_cities(
     return result_segments
 
 
-async def _get_other_segments(
-    session,
-    segments_dict: Dict[str, List[str]],
-    tail_threshold: int,
-    plusoviki_threshold: int,
-    exclude_frozen: bool
-) -> List[Tuple[str, List[str]]]:
-    """
-    Получить категории "Прочее" (Обыч. и Плюсовики)
-
-    Логика:
-    1. Для каждого сегмента считаем лиды
-    2. Если сегмент < tail_threshold → весь в "Прочее"
-    3. Если сегмент >= tail_threshold, но город < tail_threshold → город в "Прочее"
-    4. Группируем по UTC: < plusoviki_threshold → Обыч., >= → Плюсовики
-    """
-    from sqlalchemy import func as sql_func
-
-    # Получаем все города с их UTC
-    all_cities_result = await session.execute(select(City))
-    city_utc = {c.name: c.utc_offset for c in all_cities_result.scalars().all()}
-
-    # Считаем лиды по сегмент+город
-    leads_count_query = select(
-        Lead.segment, Lead.city, sql_func.count(Lead.id).label('cnt')
-    ).where(
-        Lead.status == LeadStatus.UNIQUE
-    ).group_by(Lead.segment, Lead.city)
-
-    result = await session.execute(leads_count_query)
-    segment_city_counts = {}
-    segment_total_counts = {}
-
-    for segment, city, count in result.all():
-        logger.info(f"  Сегмент '{segment}', город '{city or ''}': {count} лидов")
-        if segment not in segment_city_counts:
-            segment_city_counts[segment] = {}
-            segment_total_counts[segment] = 0
-        segment_city_counts[segment][city or ""] = count
-        segment_total_counts[segment] += count
-
-    other_regular = {}  # city_name -> segment_name
-    other_plusoviki = {}
-
-    for segment, city_counts in segment_city_counts.items():
-        total = segment_total_counts.get(segment, 0)
-
-        if total < tail_threshold:
-            # Весь сегмент в "Прочее"
-            for city_name in city_counts.keys():
-                utc = city_utc.get(city_name, 0)
-                if utc >= plusoviki_threshold:
-                    other_plusoviki[city_name] = segment
-                else:
-                    other_regular[city_name] = segment
-        else:
-            # Сегмент большой, но города могут быть хвостами
-            for city_name, count in city_counts.items():
-                if count < tail_threshold:
-                    utc = city_utc.get(city_name, 0)
-                    if utc >= plusoviki_threshold:
-                        other_plusoviki[city_name] = segment
-                    else:
-                        other_regular[city_name] = segment
-
-    result_segments = []
-
-    if other_regular:
-        cities_list = list(other_regular.keys())
-        count = len(other_regular)
-        result_segments.append((f"📦 Прочее (Обыч.) — {count}", cities_list))
-
-    if other_plusoviki:
-        cities_list = list(other_plusoviki.keys())
-        count = len(other_plusoviki)
-        result_segments.append((f"📦 Прочее (Плюсовики) — {count}", cities_list))
-
-    return result_segments
-
-
 # =============================================================================
 # Segment CRUD
 # =============================================================================
@@ -1322,10 +1244,6 @@ async def sync_segments_from_leads(session: AsyncSession) -> int:
         if segment_name not in existing_names:
             await create_segment(session, segment_name)
             added_count += 1
-    
-    # Коммитим транзакцию
-    if added_count > 0:
-        await session.commit()
 
     return added_count
 
@@ -1486,8 +1404,6 @@ async def update_ticket_status(
         .where(Ticket.id == ticket_id)
         .values(**update_data)
     )
-    
-    await session.commit()
     return result.rowcount > 0
 
 
@@ -1521,8 +1437,6 @@ async def add_admin_response(
             status="in_progress"
         )
     )
-    
-    await session.commit()
     return result.rowcount > 0
 
 
@@ -1606,8 +1520,8 @@ async def set_bot_status(
         # Создаём новую запись
         bot_status = BotStatus(id=1, status=status, reason=reason)
         session.add(bot_status)
-    
-    await session.commit()
+
+    await session.flush()
     return await get_bot_status(session)
 
 

@@ -640,8 +640,8 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
             session, lead_ids, manager_id, loaded_by_admin=True
         )
         
-        # Коммитим назначение
-        await session.commit()
+        # Flush чтобы назначение было видно в текущей сессии перед постановкой в очередь
+        await session.flush()
 
         # Получаем Bitrix24 ID менеджера
         manager = await crud.get_user_by_telegram_id(session, manager_id)
@@ -757,7 +757,7 @@ async def process_load_leads(target, state: FSMContext, session: AsyncSession, o
         
         # Логируем
         logger.info(
-            f"Админ {target.from_user.id} загрузил {imported_count} лидов менеджеру {manager_id} "
+            f"Админ {target.from_user.id} загрузил {len(lead_ids)} лидов менеджеру {manager_id} "
             f"(сегмент: {segment}, город: {city or 'Все'})"
         )
         
@@ -1398,8 +1398,8 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
                 
             except Exception as e:
                 logger.error(f"Ошибка импорта лида {lead.id} в Bitrix24: {e}")
-        
-        await session.commit()
+
+        # Commit происходит автоматически в DatabaseSessionMiddleware
 
         # Показываем успех (с обработкой ошибок callback)
         try:

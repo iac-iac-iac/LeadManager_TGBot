@@ -344,7 +344,6 @@ async def handle_segment_freeze(callback: CallbackQuery, session: AsyncSession, 
     try:
         # Замораживаем
         await crud.freeze_segment(session, segment, city)
-        await session.commit()
 
         logger.info(f"Сегмент заморожен: {segment}{' + ' + city if city else ''}")
 
@@ -381,7 +380,6 @@ async def handle_segment_unfreeze(callback: CallbackQuery, session: AsyncSession
     try:
         # Размораживаем
         await crud.unfreeze_segment(session, segment, city)
-        await session.commit()
 
         logger.info(f"Сегмент разморожен: {segment}{' + ' + city if city else ''}")
 
