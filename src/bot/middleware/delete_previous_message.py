@@ -51,6 +51,7 @@ class DeletePreviousMessageMiddleware(BaseMiddleware):
             "load_leads_managers_page:",
             "load_leads_segment_page:",
             "load_bitrix_segment_page:",
+            "select_segment_page:",
         ]
         
         is_pagination = any(
@@ -61,6 +62,7 @@ class DeletePreviousMessageMiddleware(BaseMiddleware):
         # Исключения для кнопок информации
         info_buttons = [
             "segments_page_info",
+            "select_segment_page_info",
         ]
         
         is_info = callback_data in info_buttons
