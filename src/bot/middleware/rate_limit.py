@@ -201,16 +201,18 @@ class SpamFilterMiddleware(BaseMiddleware):
         r'\b\d{10,}\b',  # Длинные числа (возможно телефоны)
     ]
 
-    def __init__(self, max_same_messages: int = 5, window: int = 60):
+    def __init__(self, max_same_messages: int = 5, window: int = 60, skip_admins: bool = True):
         """
         Инициализация
 
         Args:
             max_same_messages: Максимальное количество одинаковых сообщений
             window: Окно времени (секунды)
+            skip_admins: Не применять фильтр к админам (нужен AccessMiddleware раньше по цепочке)
         """
         self.max_same_messages = max_same_messages
         self.window = window
+        self.skip_admins = skip_admins
         self._message_history: Dict[int, list] = defaultdict(list)
         self._lock = asyncio.Lock()
 
@@ -222,6 +224,9 @@ class SpamFilterMiddleware(BaseMiddleware):
     ) -> Any:
         """Вызов middleware"""
         if not isinstance(event, Message):
+            return await handler(event, data)
+
+        if self.skip_admins and data.get("is_admin", False):
             return await handler(event, data)
 
         user_id = event.from_user.id

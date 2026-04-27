@@ -11,7 +11,7 @@
 **Реализация:** ✅ Завершено
 
 **Версия:** 2.4 (РЕЛИЗ)
-**Последнее обновление:** 7 апреля 2026 г.
+**Последнее обновление:** 27 апреля 2026 г.
 
 ### Что работает:
 - ✅ Регистрация менеджеров с подтверждением админа
@@ -105,6 +105,11 @@ PYTHONPATH=. python src/bot/main.py
 docker-compose up -d
 ```
 
+## Документация для разработчиков
+
+- Статус рефакторинга и бэклог после построчного ревью: [docs/REFACTOR_CHECKLIST_STATUS.md](docs/REFACTOR_CHECKLIST_STATUS.md)
+- Исходный обзор кодовой базы: [docs/LINE_BY_LINE_REVIEW.md](docs/LINE_BY_LINE_REVIEW.md)
+
 ## Структура проекта
 
 ```
@@ -118,11 +123,11 @@ Lead_Telegram/
 │   │   │   ├── admin.py        # Импорт CSV
 │   │   │   ├── admin_segments.py # Управление сегментами
 │   │   │   ├── admin_handlers.py # Заявки, статистика, экспорт
-│   │   │   ├── admin_load_leads.py # Загрузка на Bitrix24 ID
+│   │   │   ├── admin_load/     # Загрузка лидов (менеджер / Bitrix ID)
 │   │   │   ├── feedback.py     # Обратная связь (тикеты)
 │   │   │   ├── admin_tickets.py # Обработка тикетов (админ)
 │   │   │   └── admin_bot_control.py # Управление статусом бота
-│   │   ├── keyboards/          # Фабрика клавиатур
+│   │   ├── keyboards/          # Клавиатуры (фабрика + keyboard_*.py)
 │   │   ├── middleware/         # Middleware
 │   │   │   ├── access.py       # Проверка доступа
 │   │   │   ├── database.py     # Инъекция сессии БД
@@ -134,7 +139,7 @@ Lead_Telegram/
 │   │   └── states.py           # FSM состояния
 │   ├── database/               # База данных
 │   │   ├── models.py           # SQLAlchemy модели
-│   │   ├── crud.py             # CRUD операции
+│   │   ├── crud/               # CRUD (пакет)
 │   │   ├── migrations.py       # Миграции БД
 │   │   └── migrations/         # Файлы миграций (v1-v7)
 │   ├── bitrix24/               # Bitrix24 интеграция

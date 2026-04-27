@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 
-from src.bitrix24.client import Bitrix24Client, Bitrix24Error
+from src.bitrix24.client import Bitrix24Client, Bitrix24Error, merge_duplicate_element_lists
 
 
 VALID_WEBHOOK = "https://mycompany.bitrix24.ru/rest/1/abc123def456/"
@@ -231,3 +231,13 @@ class TestRetryLogic:
 
         assert call_count == 3
         assert "Таймаут" in str(exc_info.value)
+
+
+class TestMergeDuplicateElementLists:
+    def test_merges_dublicate_and_duplicate_keys_dedupes_ids(self):
+        result = {
+            "DUBLICATE_ELEMENT_LIST": [{"id": 1}, {"id": 2}],
+            "DUPLICATE_ELEMENT_LIST": [{"id": 2}, {"id": 3}],
+        }
+        merged = merge_duplicate_element_lists(result)
+        assert [d["id"] for d in merged] == [1, 2, 3]

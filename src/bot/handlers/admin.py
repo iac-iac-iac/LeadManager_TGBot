@@ -3,8 +3,6 @@
 
 Импорт CSV, проверка дублей, статистика, управление сегментами, очистка
 """
-import re
-import uuid
 from pathlib import Path
 
 from aiogram import Router, F
@@ -32,59 +30,10 @@ from ...bitrix24.duplicates import run_duplicate_check
 from ...config import get_config
 from ...logger import get_logger
 from ...utils.html_utils import safe_delete_message
+from ...utils.file_utils import validate_filename
 
-
-# =============================================================================
-# Валидация имён файлов
-# =============================================================================
-
-MAX_FILENAME_LENGTH = 255
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-
-
-def validate_filename(filename: str) -> tuple[bool, str]:
-    """
-    Валидация имени файла для защиты от path traversal и других атак
-    
-    Args:
-        filename: Исходное имя файла
-        
-    Returns:
-        Tuple[bool, str]: (успех, сообщение об ошибке или безопасное имя)
-    """
-    if not filename:
-        return False, "Имя файла пустое"
-    
-    # Базовая проверка длины
-    if len(filename) > MAX_FILENAME_LENGTH:
-        return False, f"Имя файла слишком длинное (максимум {MAX_FILENAME_LENGTH} символов)"
-    
-    # Проверка на опасные символы (path traversal)
-    dangerous_patterns = [
-        '..', '/', '\\', '\x00',  # Path traversal и null-байты
-        '|', '<', '>', '?', '*',  # Windows reserved chars
-        '"', "'",                  # Кавычки
-        ';', '&', '$', '`',        # Shell injection
-    ]
-    
-    for pattern in dangerous_patterns:
-        if pattern in filename:
-            return False, f"Имя файла содержит недопустимые символы"
-    
-    # Проверка расширения
-    if not filename.lower().endswith('.csv'):
-        return False, "Разрешены только CSV файлы"
-    
-    # Удаляем любые потенциально опасные Unicode-символы (control characters)
-    filename_clean = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', filename)
-    
-    # Извлекаем только имя файла (на случай если путь всё же просочился)
-    safe_filename = Path(filename_clean).name
-    
-    # Генерируем уникальное безопасное имя с UUID
-    unique_filename = f"{uuid.uuid4()}_{safe_filename}"
-    
-    return True, unique_filename
+_CSV_ONLY = {".csv"}
 
 logger = get_logger(__name__)
 
@@ -233,16 +182,15 @@ async def handle_file_upload(message: Message, state: FSMContext, session: Async
             await state.clear()
             return
 
-        # Валидация имени файла (защита от path traversal)
-        is_valid, result = validate_filename(document.file_name)
-        if not is_valid:
-            await message.answer(f"❌ Ошибка валидации файла: {result}")
+        # Валидация имени файла (та же логика, что в utils/file_utils; только CSV)
+        config = get_config()
+        is_valid, file_path, err = validate_filename(
+            document.file_name, config.uploads_folder, allowed_extensions=_CSV_ONLY
+        )
+        if not is_valid or file_path is None:
+            await message.answer(f"❌ Ошибка валидации файла: {err or 'неизвестная ошибка'}")
             await state.clear()
             return
-        
-        safe_filename = result
-        config = get_config()
-        file_path = config.uploads_folder / safe_filename
 
         # Скачиваем файл
         await message.answer(f"⏳ Сохранение файла...")

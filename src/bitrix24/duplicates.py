@@ -10,7 +10,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .client import Bitrix24Client, Bitrix24Error
+from .client import Bitrix24Client, Bitrix24Error, merge_duplicate_element_lists
 from ..database.models import Lead, LeadStatus
 from ..database import crud
 from ..logger import get_logger
@@ -73,7 +73,7 @@ class DuplicateChecker:
                 if result.get("DUPLICATE", False):
                     is_duplicate = True
                     duplicate_reason = "PHONE"
-                    duplicate_data = result.get("DUBLICATE_ELEMENT_LIST", [])
+                    duplicate_data = merge_duplicate_element_lists(result)
                     if duplicate_data and len(duplicate_data) > 0:
                         bitrix24_lead_id = duplicate_data[0].get("id")
                     logger.info(f"Лид {lead_id}: найден дубль по телефону")
@@ -333,7 +333,7 @@ class DuplicateChecker:
             )
 
             if result.get("DUPLICATE", False):
-                duplicate_data = result.get("DUBLICATE_ELEMENT_LIST", [])
+                duplicate_data = merge_duplicate_element_lists(result)
                 bitrix_id = duplicate_data[0].get("id") if duplicate_data else None
                 logger.info(f"Лид {lead.id}: найден дубль по телефону {phone_to_check}")
                 return True, f"PHONE ({phone_to_check})", bitrix_id
@@ -530,7 +530,7 @@ class DuplicateChecker:
             if result.get("DUPLICATE", False):
                 is_duplicate = True
                 duplicate_reason = f"PHONE ({phone_to_check})"
-                duplicate_data = result.get("DUBLICATE_ELEMENT_LIST", [])
+                duplicate_data = merge_duplicate_element_lists(result)
                 if duplicate_data and len(duplicate_data) > 0:
                     bitrix24_lead_id = duplicate_data[0].get("id")
                 logger.info(f"Лид {lead_id}: найден дубль по телефону {phone_to_check}")

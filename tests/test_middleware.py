@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot.middleware.database import DatabaseSessionMiddleware
+from src.bot.middleware.rate_limit import SpamFilterMiddleware
 
 
 @pytest.fixture
@@ -131,3 +132,23 @@ class TestDatabaseSessionMiddleware:
         assert captured_data["bot"] == "mock_bot"
         assert captured_data["state"] == "mock_state"
         assert "session" in captured_data
+
+
+class TestSpamFilterMiddleware:
+    @pytest.mark.asyncio
+    async def test_skips_when_admin_and_skip_admins(self):
+        mw = SpamFilterMiddleware(skip_admins=True)
+        called = []
+
+        async def handler(event, data):
+            called.append(True)
+            return "ok"
+
+        from aiogram.types import Message, User, Chat
+        user = User(id=1, is_bot=False, first_name="A")
+        chat = Chat(id=1, type="private")
+        msg = Message(
+            message_id=1, date=0, chat=chat, from_user=user, text="x" * 10
+        )
+        await mw(handler, msg, {"is_admin": True})
+        assert called == [True]

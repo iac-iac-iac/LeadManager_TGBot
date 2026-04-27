@@ -28,7 +28,7 @@ from src.database.migrations import initialize_database
 from src.bitrix24.client import get_bitrix24_client
 from src.bot.middleware.access import AccessMiddleware
 from src.bot.middleware.database import DatabaseSessionMiddleware
-from src.bot.middleware.rate_limit import RateLimitMiddleware
+from src.bot.middleware.rate_limit import RateLimitMiddleware, SpamFilterMiddleware
 from src.bot.keyboards.keyboard_factory import (
     create_manager_main_menu,
     create_admin_main_menu,
@@ -184,7 +184,7 @@ def register_handlers(dp: Dispatcher, db_manager: DatabaseManager, config: Confi
     from src.bot.handlers.feedback import router as feedback_router
     from src.bot.handlers.admin_tickets import router as admin_tickets_router
     from src.bot.handlers.admin_bot_control import router as bot_control_router
-    from src.bot.handlers.admin_load_leads import router as admin_load_leads_router
+    from src.bot.handlers.admin_load import router as admin_load_leads_router
     from src.bot.handlers.admin_broadcast import router as admin_broadcast_router
     from src.bot.handlers.admin_pending_cities import router as admin_pending_cities_router
 
@@ -256,7 +256,11 @@ async def main():
     # 1. DatabaseSessionMiddleware - создаёт сессию БД и добавляет в контекст
     dp.update.outer_middleware(DatabaseSessionMiddleware(session_factory))
 
-    # 2. RateLimitMiddleware - ограничивает частоту запросов (защита от спама)
+    # 2. AccessMiddleware - user/is_admin/is_registered (раньше rate limit, чтобы skip_admins работал)
+    dp.message.middleware(AccessMiddleware(config.admin_telegram_ids))
+    dp.callback_query.middleware(AccessMiddleware(config.admin_telegram_ids))
+
+    # 3. RateLimitMiddleware - лимит после выставления is_admin
     rate_limit_middleware = RateLimitMiddleware(
         message_limit=10,  # 10 сообщений в минуту
         message_window=60,
@@ -267,10 +271,8 @@ async def main():
     dp.message.middleware(rate_limit_middleware)
     dp.callback_query.middleware(rate_limit_middleware)
 
-    # 3. AccessMiddleware - проверяет пользователя и добавляет user/is_admin/is_registered
-    #    Использует data["session"] от DatabaseSessionMiddleware (одна сессия на запрос)
-    dp.message.middleware(AccessMiddleware(config.admin_telegram_ids))
-    dp.callback_query.middleware(AccessMiddleware(config.admin_telegram_ids))
+    # 3b. Антиспам по длине/повторам (после rate limit; админы пропускаются)
+    dp.message.middleware(SpamFilterMiddleware(skip_admins=True))
 
     # 4. BotStatusMiddleware - проверяет статус бота и блокирует обычных пользователей при остановке
     from src.bot.middleware.bot_status import BotStatusMiddleware

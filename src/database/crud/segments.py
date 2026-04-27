@@ -183,6 +183,10 @@ async def get_segments_with_cities(
     """
     Получение списка сегментов с городами.
 
+    ``exclude_frozen=True`` (по умолчанию) — как в меню менеджера: скрыть замороженные
+    сегменты/города. ``exclude_frozen=False`` — для сценариев админ-загрузки; удобнее
+    вызывать через :func:`get_segments_for_admin_load`.
+
     Логика:
     - Если сегмент < tail_threshold лидов → весь сегмент в "Прочее"
     - Если сегмент >= tail_threshold → показываем сегмент;
@@ -292,3 +296,24 @@ async def get_segments_with_cities(
 
     logger.info(f"get_segments_with_cities: итого {len(result_segments)} сегментов")
     return result_segments
+
+
+async def get_segments_for_admin_load(
+    session: AsyncSession,
+    include_other: bool = True,
+    tail_threshold: int = 10,
+    plusoviki_threshold: int = 3,
+) -> List[Tuple[str, List[str]]]:
+    """
+    Сегменты и города для загрузки админом (на менеджера в боте или по Bitrix24 ID).
+
+    Всегда с ``exclude_frozen=False``: админ может выдавать лиды из замороженных
+    сегментов/городов (в отличие от ``manager_leads``, где меню с ``exclude_frozen=True``).
+    """
+    return await get_segments_with_cities(
+        session,
+        exclude_frozen=False,
+        include_other=include_other,
+        tail_threshold=tail_threshold,
+        plusoviki_threshold=plusoviki_threshold,
+    )

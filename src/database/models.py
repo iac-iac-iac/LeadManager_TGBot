@@ -11,7 +11,7 @@ from sqlalchemy import (
     Column, Integer, BigInteger, String, Boolean, DateTime,
     ForeignKey, Text, JSON, Enum, UniqueConstraint, Index, CheckConstraint, text
 )
-from sqlalchemy.orm import relationship, declarative_base, Session
+from sqlalchemy.orm import declarative_base, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 Base = declarative_base()
@@ -165,11 +165,12 @@ class Lead(Base):
         Index('idx_leads_status_created_at', 'status', 'created_at'),
         # Индекс для статистики менеджера
         Index('idx_leads_manager_assigned_at', 'manager_telegram_id', 'assigned_at'),
-        # Частичный индекс для уникальных лидов
+        # Частичный индекс для уникальных лидов (SQLite + PostgreSQL)
         Index(
             'idx_leads_unique_available',
             'status', 'segment', 'city', 'created_at',
-            postgresql_where=text("status = 'UNIQUE'")
+            sqlite_where=text("status = 'UNIQUE'"),
+            postgresql_where=text("status = 'UNIQUE'"),
         ),
         # Уникальные ограничения для предотвращения дублей (для SQLite)
         # Дублируются в миграции v3 для совместимости
@@ -461,11 +462,6 @@ class DatabaseManager:
     def get_session(self) -> Session:
         """Получение синхронной сессии (для простых операций)"""
         return Session(self.engine.sync_engine)
-
-    async def get_async_session(self) -> AsyncSession:
-        """Получение асинхронной сессии"""
-        async with self.async_session_factory() as session:
-            yield session
 
     async def execute(self, query):
         """Выполнение запроса"""

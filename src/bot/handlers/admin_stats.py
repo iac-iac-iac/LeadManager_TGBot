@@ -1,7 +1,7 @@
 """
 Обработчики статистики и экспорта отчётов (admin)
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, FSInputFile
@@ -91,7 +91,7 @@ async def handle_admin_export(callback: CallbackQuery, session: AsyncSession):
 
     config = get_config()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     filename = f"report_{now.strftime('%Y%m%d_%H%M%S')}.csv"
     output_path = config.uploads_folder / filename
 

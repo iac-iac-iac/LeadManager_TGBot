@@ -200,3 +200,25 @@ class TestSegmentLockCRUD:
         # Проверяем
         assert await crud.is_segment_frozen(session, "Автосалон") is True
         assert await crud.is_segment_frozen(session, "Другой") is False
+
+    @pytest.mark.asyncio
+    async def test_count_available_respects_city_only_freeze(self, session: AsyncSession):
+        """Заморозка одного города не убирает весь сегмент из count_available (§2.3)"""
+        await crud.create_lead(
+            session,
+            company_name="A",
+            segment="SegFreeze",
+            city="C1",
+            status=LeadStatus.UNIQUE,
+        )
+        await crud.create_lead(
+            session,
+            company_name="B",
+            segment="SegFreeze",
+            city="C2",
+            status=LeadStatus.UNIQUE,
+        )
+        await crud.freeze_segment(session, segment="SegFreeze", city="C1")
+        assert await crud.count_available_leads(session, "SegFreeze", city=None) == 1
+        assert await crud.count_available_leads(session, "SegFreeze", city="C1") == 0
+        assert await crud.count_available_leads(session, "SegFreeze", city="C2") == 1

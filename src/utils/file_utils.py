@@ -7,21 +7,27 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Set
 
 
 MAX_FILENAME_LENGTH = 255
 ALLOWED_EXTENSIONS = {'.csv', '.txt', '.json', '.xml'}
-DANGEROUS_PATTERNS = ['..', '\x00', '|', '<', '>', '*', ';', '&', '$', '`']
+DANGEROUS_PATTERNS = ['..', '/', '\\', '\x00', '|', '<', '>', '*', ';', '&', '$', '`', '"', "'"]
 
 
-def validate_filename(filename: str, uploads_dir: Path) -> Tuple[bool, Optional[Path], Optional[str]]:
+def validate_filename(
+    filename: str,
+    uploads_dir: Path,
+    allowed_extensions: Optional[Set[str]] = None,
+) -> Tuple[bool, Optional[Path], Optional[str]]:
     """
     Валидация имени файла для безопасной загрузки
 
     Args:
         filename: Исходное имя файла
         uploads_dir: Директория для загрузок
+        allowed_extensions: Если задано — только эти расширения (нижний регистр, с точкой);
+            иначе используется ALLOWED_EXTENSIONS
 
     Returns:
         (успех, безопасный путь или None, сообщение об ошибке)
@@ -44,8 +50,9 @@ def validate_filename(filename: str, uploads_dir: Path) -> Tuple[bool, Optional[
 
     # Проверка расширения
     file_ext = Path(filename).suffix.lower()
-    if file_ext not in ALLOWED_EXTENSIONS:
-        return False, None, f"Недопустимое расширение файла (разрешены: {', '.join(ALLOWED_EXTENSIONS)})"
+    ext_set = allowed_extensions if allowed_extensions is not None else ALLOWED_EXTENSIONS
+    if file_ext not in ext_set:
+        return False, None, f"Недопустимое расширение файла (разрешены: {', '.join(sorted(ext_set))})"
 
     # Проверка на опасные символы
     for pattern in DANGEROUS_PATTERNS:
@@ -58,9 +65,8 @@ def validate_filename(filename: str, uploads_dir: Path) -> Tuple[bool, Optional[
 
     # Извлекаем только имя файла (без пути)
     safe_filename = Path(filename).name
-
-    # Дополнительная проверка через regex (разрешаем только безопасные символы)
-    if not re.match(r'^[a-zA-Z0-9_\-\.\s]+$', safe_filename):
+    safe_filename = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", safe_filename)
+    if not safe_filename or safe_filename in (".", ".."):
         return False, None, "Имя файла содержит недопустимые символы"
 
     # Генерируем уникальное имя файла

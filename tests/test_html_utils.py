@@ -20,7 +20,7 @@ from src.utils.html_utils import (
     safe_edit_or_answer,
     suppress_telegram_errors,
 )
-from src.bot.keyboards.keyboard_factory import safe_parse_callback_data
+from src.utils.callback_utils import parse_colon_action_dict as safe_parse_callback_data
 
 
 # =============================================================================

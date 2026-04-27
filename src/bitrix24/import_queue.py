@@ -6,9 +6,15 @@
 - Обработки массовых загрузок в фоне
 - Уведомления пользователей о завершении импорта
 - Проверки дублей в фоне
+
+Загрузка лидов из бота существует в двух осознанных вариантах: фоновая очередь
+(``BitrixImportQueue`` / задачи в этом модуле) и интерактивные сценарии
+``src/bot/handlers/admin_load/`` (менеджер, Bitrix ID, «Прочее»). Единого
+класса-координатора «LeadImportCoordinator» нет — при изменении логики импорта
+сверяйте оба пути.
 """
 import asyncio
-from typing import Optional, Callable, Awaitable, Dict, Any, List
+from typing import Optional, Callable, Awaitable, Dict, Any, List, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import crud
@@ -19,6 +25,18 @@ from src.config import get_config
 from src.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _bitrix_client_from_config():
+    """Те же параметры клиента, что и при инициализации в main.py (таймауты, прокси)."""
+    cfg = get_config()
+    return get_bitrix24_client(
+        cfg.bitrix24.webhook_url,
+        request_timeout=cfg.bitrix24.request_timeout,
+        retry_attempts=cfg.bitrix24.retry_attempts,
+        retry_delay=cfg.bitrix24.retry_delay,
+        proxy_url=cfg.bitrix24.proxy_url or None,
+    )
 
 
 class ImportTask:
@@ -80,10 +98,12 @@ class BitrixImportQueue:
         Args:
             max_queue_size: Максимальный размер очереди
         """
-        self._queue: asyncio.Queue[ImportTask] = asyncio.Queue(maxsize=max_queue_size)
+        self._queue: asyncio.Queue[Union[ImportTask, DuplicateCheckTask]] = asyncio.Queue(
+            maxsize=max_queue_size
+        )
         self._worker_task: Optional[asyncio.Task] = None
         self._is_running = False
-        self._current_task: Optional[ImportTask] = None
+        self._current_task: Optional[Union[ImportTask, DuplicateCheckTask]] = None
         
         # Статистика
         self._stats = {
@@ -261,63 +281,46 @@ class BitrixImportQueue:
         Returns:
             Статистика импорта
         """
-        # Создаём новую сессию для импорта (чтобы не блокировать основную)
         from src.database.models import DatabaseManager
         import asyncio
 
-        # Получаем путь к базе из конфига
         config = get_config()
-        db_path = config.database_path
+        db_manager = DatabaseManager(str(config.database_path))
 
-        # Создаём временную сессию с retry логикой
-        db_manager = DatabaseManager(db_path)
-
-        for attempt in range(5):  # 5 попыток при блокировке
-            try:
-                async with db_manager.async_session_factory() as session:
-                    try:
-                        # Назначаем лиды менеджеру (если ещё не назначены)
+        try:
+            for attempt in range(5):
+                try:
+                    async with db_manager.async_session_factory() as session:
                         await crud.assign_leads_to_manager(
                             session,
                             task.lead_ids,
                             task.manager_id,
                             loaded_by_admin=True
                         )
-
-                        # Получаем Bitrix24 клиента
-                        bitrix_client = get_bitrix24_client(config.bitrix24.webhook_url)
-
-                        # Импортируем в Bitrix24
+                        bitrix_client = _bitrix_client_from_config()
                         stats = await import_assigned_leads(
                             session,
                             bitrix_client,
                             task.manager_id,
                             task.bitrix_user_id
                         )
-
-                        # Коммитим транзакцию
                         await session.commit()
-
                         return stats
+                except Exception as e:
+                    if "database is locked" in str(e) and attempt < 4:
+                        wait_time = 0.5 * (2 ** attempt)
+                        logger.warning(
+                            f"БД заблокирована, попытка {attempt + 1}/5 через {wait_time}с"
+                        )
+                        await asyncio.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ Ошибка импорта: {type(e).__name__}: {e}")
+                        return {"imported": 0, "errors": 1}
+            return {"imported": 0, "errors": 1}
+        finally:
+            await db_manager.engine.dispose()
 
-                    except Exception as e:
-                        await session.rollback()
-                        raise e
-                    finally:
-                        await db_manager.engine.dispose()
-
-            except Exception as e:
-                if "database is locked" in str(e) and attempt < 4:
-                    wait_time = 0.5 * (2 ** attempt)  # 0.5с, 1с, 2с, 4с, 8с
-                    logger.warning(f"БД заблокирована, попытка {attempt+1}/5 через {wait_time}с")
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.error(f"❌ Ошибка импорта: {type(e).__name__}: {e}")
-                    return {"imported": 0, "errors": 1}
-
-        return {"imported": 0, "errors": 1}
-
-    async def _process_duplicate_check(self, task: 'DuplicateCheckTask') -> Dict[str, int]:
+    async def _process_duplicate_check(self, task: "DuplicateCheckTask") -> Dict[str, int]:
         """
         Обработка одной задачи проверки дублей
         Используем retry логику при блокировке БД
@@ -328,48 +331,34 @@ class BitrixImportQueue:
         Returns:
             Статистика проверки
         """
-        # Создаём новую сессию для проверки (чтобы не блокировать основную)
         from src.database.models import DatabaseManager
         import asyncio
 
-        # Получаем путь к базе из конфига
         config = get_config()
-        db_path = config.database_path
+        db_manager = DatabaseManager(str(config.database_path))
 
-        # Создаём временную сессию с retry логикой
-        db_manager = DatabaseManager(db_path)
-
-        for attempt in range(5):  # 5 попыток при блокировке
-            try:
-                async with db_manager.async_session_factory() as session:
-                    try:
-                        # Создаём checker и запускаем проверку
-                        bitrix_client = get_bitrix24_client(config.bitrix24.webhook_url)
+        try:
+            for attempt in range(5):
+                try:
+                    async with db_manager.async_session_factory() as session:
+                        bitrix_client = _bitrix_client_from_config()
                         checker = DuplicateChecker(bitrix_client)
-
                         stats = await checker.check_leads_batch(session, task.lead_ids)
-
-                        # Коммитим транзакцию
                         await session.commit()
-
                         return stats
-
-                    except Exception as e:
-                        await session.rollback()
-                        raise e
-                    finally:
-                        await db_manager.engine.dispose()
-
-            except Exception as e:
-                if "database is locked" in str(e) and attempt < 4:
-                    wait_time = 0.5 * (2 ** attempt)  # 0.5с, 1с, 2с, 4с, 8с
-                    logger.warning(f"БД заблокирована, попытка {attempt+1}/5 через {wait_time}с")
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.error(f"❌ Ошибка проверки дублей: {type(e).__name__}: {e}")
-                    return {"duplicates": 0, "unique": 0, "errors": 1}
-
-        return {"duplicates": 0, "unique": 0, "errors": 1}
+                except Exception as e:
+                    if "database is locked" in str(e) and attempt < 4:
+                        wait_time = 0.5 * (2 ** attempt)
+                        logger.warning(
+                            f"БД заблокирована, попытка {attempt + 1}/5 через {wait_time}с"
+                        )
+                        await asyncio.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ Ошибка проверки дублей: {type(e).__name__}: {e}")
+                        return {"duplicates": 0, "unique": 0, "errors": 1}
+            return {"duplicates": 0, "unique": 0, "errors": 1}
+        finally:
+            await db_manager.engine.dispose()
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -399,7 +388,7 @@ class BitrixImportQueue:
         
         status = f"🔄 Очередь импорта\n\n"
         status += f"📊 Обработано: {stats['processed']}\n"
-        status += f"✅ Успешно: {stats['total_leads']} лидов\n"
+        status += f"📦 Всего лидов (обработано): {stats['total_leads']}\n"
         status += f"⚠️ Ошибки: {stats['failed']}\n"
         
         if stats["queue_size"] > 0:

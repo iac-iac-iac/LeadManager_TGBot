@@ -2,7 +2,29 @@
 
 Проект: **Telegram-бот для раздачи холодных лидов с интеграцией в Bitrix24**
 Версия: **2.4**
-Текущая дата: **7 апреля 2026 г.**
+Текущая дата: **27 апреля 2026 г.**
+
+---
+
+## [2.4.1] — 27 апреля 2026 — Рефакторинг и документация
+
+### Структура кода
+
+- Пакет **`src/bot/handlers/admin_load/`** (`manager_flow`, `bitrix_flow`, `handlers`) вместо монолита **`admin_load_leads.py`**.
+- Клавиатуры: подмодули **`keyboard_common`**, **`keyboard_segment_emoji`**, **`keyboard_inline_core`**, **`keyboard_tickets_bot`**, **`keyboard_admin_load`**; **`keyboard_factory.py`** — реэкспорт для прежних импортов. Повторная генерация: `python tools/split_keyboard_factory.py` (после правок сверять срезы строк).
+- Удалены мёртвые **`src/database/crud.py`** (монолит) и **`city_crud.py`**; единый пакет **`database/crud/`**.
+- Докстринг **`src/bitrix24/import_queue.py`**: зафиксированы два осознанных пути импорта (очередь vs сценарии **`admin_load/`**), без единого `LeadImportCoordinator`.
+
+### Тесты
+
+- **128** тестов; добавлены **`test_config_validation`**, **`test_import_queue`**, расширены middleware, **`test_admin_load_keyboards`** (в т.ч. реэкспорт `get_segment_emoji`).
+- Предупреждения aiosqlite в pytest: см. **`pytest.ini`** и **`docs/REFACTOR_CHECKLIST_STATUS.md`** (§3.3, §7).
+
+### Документация
+
+- **`docs/REFACTOR_CHECKLIST_STATUS.md`** — статус по ревью и бэклог.
+- Обновлены **`docs/LINE_BY_LINE_REVIEW.md`**, **`README.md`** (структура, ссылки на docs).
+- **`.gitignore`**: каталог **`.cursor/`**.
 
 ---
 

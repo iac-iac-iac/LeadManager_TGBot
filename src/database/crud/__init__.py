@@ -49,6 +49,8 @@ from .cities import (
     get_pending_cities,
     approve_pending_city,
     reject_pending_city,
+    count_pending_cities,
+    delete_approved_city,
 )
 
 from .segments import (
@@ -62,6 +64,7 @@ from .segments import (
     create_segment,
     sync_segments_from_leads,
     get_segments_with_cities,
+    get_segments_for_admin_load,
 )
 
 from .tickets import (
@@ -130,6 +133,8 @@ __all__ = [
     "get_pending_cities",
     "approve_pending_city",
     "reject_pending_city",
+    "count_pending_cities",
+    "delete_approved_city",
     # segments
     "get_segment_lock",
     "freeze_segment",
@@ -141,6 +146,7 @@ __all__ = [
     "create_segment",
     "sync_segments_from_leads",
     "get_segments_with_cities",
+    "get_segments_for_admin_load",
     # tickets
     "create_ticket",
     "get_ticket_by_id",

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .client import Bitrix24Client, Bitrix24Error
 from ..database.models import LeadStatus
 from ..database import crud
+from ..config import get_config
 from ..logger import get_logger
 
 logger = get_logger(__name__)
@@ -63,18 +64,10 @@ class LeadImporter:
             # Логгируем для отладки
             logger.info(f"Импорт лида {lead_id}: title={title}, assigned_by_id={bitrix24_user_id}")
 
-            # Маппинг названий услуг в ID значений Bitrix24
-            SERVICE_TYPE_MAP = {
-                "ГЦК": 101,
-                "ГЦК без КЦ": 102,
-                "Call-центр": 103,
-                "Лид-код": 104,
-                "Авито": 105,
-                "Рекрутинг": 106,
-            }
-            
-            # Получаем ID типа услуги
-            service_type_id = SERVICE_TYPE_MAP.get(lead.service_type, 101)  # По умолчанию ГЦК
+            b24 = get_config().bitrix24
+            service_type_id = b24.service_type_map.get(
+                lead.service_type, b24.default_service_type_id
+            )
             
             # Импортируем в Bitrix24 с дополнительными полями
             # Для выпадающих списков передаём ID значения

@@ -10,9 +10,11 @@
 - Извлекает уникальные города из Lead.city
 - Вставляет в cities с utc_offset=0 (админ обновит позже)
 """
-import asyncio
-from sqlalchemy import text, select, func
+import logging
+from sqlalchemy import text, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 
 async def migrate_v8(session: AsyncSession, City, Lead, LeadStatus):
@@ -22,7 +24,7 @@ async def migrate_v8(session: AsyncSession, City, Lead, LeadStatus):
     Создаёт таблицы cities и pending_cities,
     мигрирует существующие города из Lead.city
     """
-    print("🔄 Миграция v8: Таблицы городов")
+    logger.info("Миграция v8: таблицы городов")
 
     # Таблицы уже созданы через Base.metadata.create_all()
     # Нужно только мигрировать существующие данные
@@ -35,7 +37,7 @@ async def migrate_v8(session: AsyncSession, City, Lead, LeadStatus):
     )
     existing_cities = [row[0] for row in result.all()]
 
-    print(f"  Найдено уникальных городов: {len(existing_cities)}")
+    logger.info("Найдено уникальных городов: %s", len(existing_cities))
 
     # 2. Вставляем в cities с utc_offset=0 (временное значение)
     added = 0
@@ -57,7 +59,7 @@ async def migrate_v8(session: AsyncSession, City, Lead, LeadStatus):
         added += 1
 
     await session.commit()
-    print(f"  ✅ Добавлено городов: {added} (с utc_offset=0)")
+    logger.info("Добавлено городов: %s (utc_offset=0)", added)
 
     # 3. Записываем версию миграции
     await session.execute(
@@ -66,5 +68,6 @@ async def migrate_v8(session: AsyncSession, City, Lead, LeadStatus):
     )
     await session.commit()
 
-    print("✅ Миграция v8 завершена")
-    print("  📝 Админу нужно обновить utc_offset для каждого города через меню '🌍 Управление городами'")
+    logger.info(
+        "Миграция v8 завершена. Обновите utc_offset для городов в меню управления городами."
+    )

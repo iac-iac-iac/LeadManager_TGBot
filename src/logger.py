@@ -140,7 +140,8 @@ def setup_logger(name: str = "lead_telegram", log_file: str = None, level: str =
     """
     # Создаем логгер
     logger = logging.getLogger(name)
-    logger.setLevel(getattr(logging, level.upper()))
+    log_level = getattr(logging, level.upper())
+    logger.setLevel(log_level)
 
     # Очищаем существующие обработчики
     logger.handlers.clear()
@@ -148,9 +149,9 @@ def setup_logger(name: str = "lead_telegram", log_file: str = None, level: str =
     # Форматтер
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-    # Консольный обработчик
+    # Консоль: тот же уровень, что и у логгера (иначе root DEBUG перекрывает настройку)
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(log_level)
     console_handler.setFormatter(formatter)
     
     # Добавляем фильтр чувствительных данных
@@ -169,7 +170,7 @@ def setup_logger(name: str = "lead_telegram", log_file: str = None, level: str =
             backupCount=5,
             encoding="utf-8"
         )
-        file_handler.setLevel(logging.DEBUG)
+        file_handler.setLevel(log_level)
         file_handler.setFormatter(formatter)
         
         # Добавляем фильтр чувствительных данных

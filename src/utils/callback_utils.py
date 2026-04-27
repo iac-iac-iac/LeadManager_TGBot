@@ -73,6 +73,57 @@ def parse_callback_data(data: str) -> Tuple[Optional[str], List[str]]:
     return prefix, params
 
 
+def parse_colon_to_action_dict(callback_data: str) -> Dict[str, Any]:
+    """
+    Парсинг callback_data в формате "action:param1:..." (как в keyboard_factory / ticket handlers).
+
+    Returns:
+        {"action": str, "params": List[str]}
+    """
+    parts = callback_data.split(":")
+    return {
+        "action": parts[0],
+        "params": parts[1:] if len(parts) > 1 else [],
+    }
+
+
+def parse_colon_action_dict(
+    callback_data: Optional[str], expected_parts: int = 0
+) -> Optional[Dict[str, Any]]:
+    """
+    Безопасный парсинг "action:params..." с проверкой числа параметров.
+
+    Returns:
+        {"action": str, "params": List[str]} или None при ошибке
+    """
+    import logging
+    _log = logging.getLogger(__name__)
+
+    if not callback_data or not isinstance(callback_data, str):
+        _log.warning("parse_colon_action_dict: пустые или некорректные данные: %r", callback_data)
+        return None
+
+    try:
+        parts = callback_data.split(":")
+        action = parts[0]
+        params = parts[1:] if len(parts) > 1 else []
+
+        if expected_parts > 0 and len(params) < expected_parts:
+            _log.warning(
+                "parse_colon_action_dict: ожидалось %s params, получено %s для %r",
+                expected_parts,
+                len(params),
+                callback_data,
+            )
+            return None
+
+        return {"action": action, "params": params}
+
+    except Exception as e:  # noqa: BLE001 — парсинг: логируем и None
+        _log.warning("parse_colon_action_dict: ошибка парсинга %r: %s", callback_data, e)
+        return None
+
+
 def validate_callback_data(prefix: str, params: List[str]) -> Tuple[bool, Optional[str]]:
     """
     Валидация callback данных

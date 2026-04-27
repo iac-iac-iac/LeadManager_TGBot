@@ -4,13 +4,42 @@ CRUD для работы с лидами
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
 
-from sqlalchemy import select, update, delete, func, and_, or_, case
+from sqlalchemy import select, update, delete, func, and_, or_, case, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Lead, LeadStatus, SegmentLock, City
 from ...logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _lead_row_not_frozen_filter():
+    """
+    Соответствует логике is_segment_frozen() == False:
+    заморозка всего сегмента (lock с city NULL) ИЛИ конкретного города.
+    """
+    whole_segment_frozen = exists(
+        select(1)
+        .select_from(SegmentLock)
+        .where(
+            SegmentLock.segment == Lead.segment,
+            SegmentLock.city.is_(None),
+            SegmentLock.is_frozen.is_(True),
+        )
+    )
+    city_frozen = and_(
+        Lead.city.isnot(None),
+        exists(
+            select(1)
+            .select_from(SegmentLock)
+            .where(
+                SegmentLock.segment == Lead.segment,
+                SegmentLock.city == Lead.city,
+                SegmentLock.is_frozen.is_(True),
+            )
+        ),
+    )
+    return ~(or_(whole_segment_frozen, city_frozen))
 
 
 async def create_lead(
@@ -108,6 +137,8 @@ async def get_available_leads(
             )
         )
 
+    query = query.where(_lead_row_not_frozen_filter())
+
     query = query.order_by(Lead.created_at.asc()).limit(limit)
     result = await session.execute(query)
     return result.scalars().all()
@@ -127,8 +158,7 @@ async def count_available_leads(
     if city:
         query = query.where(Lead.city == city)
 
-    frozen_subquery = select(SegmentLock.segment).where(SegmentLock.is_frozen == True)
-    query = query.where(Lead.segment.notin_(frozen_subquery))
+    query = query.where(_lead_row_not_frozen_filter())
 
     result = await session.execute(query)
     return result.scalar() or 0

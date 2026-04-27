@@ -18,6 +18,15 @@ bitrix24:
     - phone
     - company_name
     - address
+  # ID полей-списка «тип услуги» в Bitrix; при смене портала подставьте свои
+  service_type_map:
+    "ГЦК": 101
+    "ГЦК без КЦ": 102
+    "Call-центр": 103
+    "Лид-код": 104
+    "Авито": 105
+    "Рекрутинг": 106
+  default_service_type_id: 101
 
 # Database Configuration
 database:

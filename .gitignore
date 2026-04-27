@@ -77,9 +77,10 @@ log/
 out/
 
 # ====================
-# IDE - VS Code
+# IDE - VS Code / Cursor
 # ====================
 .vscode/
+.cursor/
 *.code-workspace
 
 # ====================

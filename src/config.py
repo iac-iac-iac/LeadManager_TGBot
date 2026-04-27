@@ -3,11 +3,11 @@
 """
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -19,6 +19,14 @@ class TelegramConfig(BaseModel):
     retry_attempts: int = 3
     retry_delay: int = 5
 
+    @field_validator("bot_token", mode="before")
+    @classmethod
+    def _token_not_empty(cls, v: str) -> str:
+        s = (v or "").strip() if isinstance(v, str) else str(v)
+        if not s:
+            raise ValueError("telegram.bot_token must be set to a non-empty value (set TELEGRAM_BOT_TOKEN in .env or config.yaml)")
+        return s
+
 
 class Bitrix24Config(BaseModel):
     webhook_url: str
@@ -27,6 +35,26 @@ class Bitrix24Config(BaseModel):
     retry_attempts: int = 3
     retry_delay: int = 5
     duplicate_check_fields: List[str] = Field(default_factory=lambda: ["phone", "company_name", "address"])
+    # ID значений поля «тип услуги» в Bitrix (список) — при смене портала править в config.yaml
+    service_type_map: Dict[str, int] = Field(
+        default_factory=lambda: {
+            "ГЦК": 101,
+            "ГЦК без КЦ": 102,
+            "Call-центр": 103,
+            "Лид-код": 104,
+            "Авито": 105,
+            "Рекрутинг": 106,
+        }
+    )
+    default_service_type_id: int = 101
+
+    @field_validator("webhook_url", mode="before")
+    @classmethod
+    def _webhook_not_empty(cls, v: str) -> str:
+        s = (v or "").strip() if isinstance(v, str) else str(v)
+        if not s or not s.startswith("http"):
+            raise ValueError("bitrix24.webhook_url must be a non-empty URL (https://.../rest/...)")
+        return s
 
 
 class DatabaseConfig(BaseModel):

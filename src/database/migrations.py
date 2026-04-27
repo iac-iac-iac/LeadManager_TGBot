@@ -90,8 +90,9 @@ async def run_migrations(db_manager: DatabaseManager):
                         {"version": 7}
                     )
                 elif version == 8:
-                    # Для миграции v8 нужна сессия, а не conn
-                    # Поэтому вызываем через отдельную логику
+                    # v8 (города + данные) выполняется в initialize_database()
+                    # через migrate_v8(session, ...) — нужна ORM-сессия, не raw conn.
+                    # Запись в schema_migrations для v8 делает сама migrate_v8.
                     pass
 
 

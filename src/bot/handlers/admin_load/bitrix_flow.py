@@ -1,0 +1,659 @@
+"""
+Сценарий загрузки на Bitrix24 ID без менеджера в боте (AdminLoadLeadsBitrixStates).
+"""
+import asyncio
+from datetime import datetime, timezone
+from typing import Dict, Any
+from aiogram import Router, F
+from aiogram.types import CallbackQuery, Message
+from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ...states import AdminLoadLeadsBitrixStates
+from ...messages.texts import (
+    ADMIN_LOAD_LEADS_SELECT_SEGMENT,
+    ADMIN_LOAD_LEADS_SELECT_CITY,
+    ADMIN_LOAD_LEADS_COUNT,
+    ADMIN_LOAD_LEADS_NOT_ENOUGH,
+    ADMIN_LOAD_LEADS_CONFIRM,
+    ADMIN_LOAD_LEADS_ERROR,
+    ADMIN_LOAD_LEADS_ENTER_BITRIX_ID,
+    ADMIN_LOAD_LEADS_BITRIX_INFO,
+    ADMIN_LOAD_LEADS_BITRIX_SUCCESS,
+    BTN_BACK,
+    BTN_CANCEL,
+)
+from ...keyboards.keyboard_factory import (
+    create_segments_load_keyboard,
+    create_cities_load_keyboard,
+    create_back_keyboard,
+    create_not_enough_leads_keyboard,
+)
+from ....database import crud
+from ....database.models import Lead, LeadStatus
+from ....bitrix24.client import get_bitrix24_client
+from ....bitrix24.leads import LeadImporter
+from ....config import get_config
+from ....logger import get_logger
+from ....utils.html_utils import (
+    safe_answer_callback,
+    safe_delete_message,
+    format_html_safe,
+)
+
+logger = get_logger(__name__)
+router = Router()
+
+
+@router.callback_query(F.data.startswith("load_bitrix_segment_page:"))
+async def handle_bitrix_segment_page(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Пагинация сегментов для загрузки на Bitrix24 ID"""
+    try:
+        parsed = callback.data.split(":")
+        new_page = int(parsed[1])
+
+        # Получаем данные из состояния
+        state_data = await state.get_data()
+        segments = state_data.get("segments_list", [])
+
+        if not segments:
+            await callback.answer("⚠️ Список сегментов не найден", show_alert=True)
+            return
+
+        # Обновляем страницу
+        await state.update_data(current_page=new_page)
+
+        # Показываем новую страницу
+        keyboard = create_segments_load_keyboard(segments, page=new_page, page_size=10, prefix="load_bitrix_segment")
+
+        await safe_edit_or_answer(callback, ADMIN_LOAD_LEADS_SELECT_SEGMENT, reply_markup=keyboard)
+
+    except Exception as e:
+        logger.error(f"Ошибка пагинации сегментов: {type(e).__name__}: {e}")
+        await safe_answer_callback(callback, "⚠️ Ошибка", show_alert=True)
+
+@router.callback_query(F.data == "load_leads_segment_select")
+async def back_to_segment_select(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Возврат к выбору сегмента"""
+    try:
+        # Сохраняем bitrix_user_id перед возвратом (чтобы не потерялся)
+        state_data = await state.get_data()
+        bitrix_id = state_data.get("bitrix_user_id")
+        
+        # Получаем сегменты (включая замороженные — админ может загружать в любые)
+        segments = await crud.get_segments_for_admin_load(session)
+        
+        # Логируем для отладки
+        logger.info(f"Загрузка сегментов: найдено {len(segments)} сегментов")
+        for seg_name, cities in segments:
+            logger.info(f"  Сегмент: '{seg_name}', города: {cities}")
+
+        if not segments:
+            await callback.message.answer(
+                "⚠️ Нет доступных сегментов",
+                reply_markup=create_back_keyboard("admin_load_leads")
+            )
+            await state.clear()
+            return
+
+        # Сохраняем в состоянии (включая bitrix_user_id)
+        await state.update_data(
+            segments_list=segments,
+            bitrix_user_id=bitrix_id  # Сохраняем ID
+        )
+        await state.set_state(AdminLoadLeadsBitrixStates.SELECT_SEGMENT)
+
+        # Показываем сегменты
+        keyboard = create_segments_load_keyboard(segments, page=0, page_size=10)
+
+        # Удаляем предыдущее сообщение
+        await safe_delete_message(callback.message)
+
+        await callback.message.answer(
+            ADMIN_LOAD_LEADS_SELECT_SEGMENT,
+            reply_markup=keyboard
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка возврата к сегментам: {type(e).__name__}: {e}")
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+    await callback.answer()
+
+
+# =============================================================================
+# Загрузка лидов на Bitrix24 ID (незарегистрированный менеджер)
+# =============================================================================
+
+@router.callback_query(F.data == "admin_load_leads_bitrix")
+async def admin_load_leads_bitrix_menu(callback: CallbackQuery, state: FSMContext):
+    """
+    Меню загрузки лидов на Bitrix24 ID
+    
+    Запрос Bitrix24 ID пользователя
+    """
+    try:
+        # Удаляем предыдущее сообщение
+        await safe_delete_message(callback.message)
+        
+        await state.set_state(AdminLoadLeadsBitrixStates.ENTER_BITRIX_ID)
+        
+        await callback.message.answer(
+            ADMIN_LOAD_LEADS_ENTER_BITRIX_ID.format(
+                bitrix_info=ADMIN_LOAD_LEADS_BITRIX_INFO
+            ),
+            reply_markup=create_back_keyboard("admin_menu")
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка меню загрузки на Bitrix24 ID: {type(e).__name__}: {e}")
+        await callback.message.answer("⚠️ Ошибка")
+    
+    await callback.answer()
+
+
+@router.message(AdminLoadLeadsBitrixStates.ENTER_BITRIX_ID)
+async def handle_bitrix_id_input(message: Message, state: FSMContext, session: AsyncSession):
+    """Обработка ввода Bitrix24 ID"""
+    try:
+        # Логируем что пришло
+        logger.info(f"Получено сообщение: '{message.text}' (type: {type(message.text)})")
+        
+        # Парсим ID
+        try:
+            bitrix_id = int(message.text.strip())
+            logger.info(f"Распаршено ID: {bitrix_id}")
+        except ValueError as e:
+            logger.error(f"Ошибка парсинга ID: {e}")
+            await message.answer(ADMIN_LOAD_LEADS_INVALID_BITRIX_ID)
+            return
+
+        # Валидация
+        if bitrix_id <= 0:
+            logger.error(f"ID отрицательный: {bitrix_id}")
+            await message.answer(ADMIN_LOAD_LEADS_INVALID_BITRIX_ID)
+            return
+        
+        logger.info(f"ID валиден: {bitrix_id}")
+        
+        # Сохраняем ID
+        await state.update_data(bitrix_user_id=bitrix_id)
+        await state.set_state(AdminLoadLeadsBitrixStates.SELECT_SEGMENT)
+
+        # Получаем сегменты (включая замороженные — админ может загружать в любые)
+        segments = await crud.get_segments_for_admin_load(session)
+        
+        # Логируем для отладки
+        logger.info(f"Загрузка сегментов: найдено {len(segments)} сегментов")
+        for seg_name, cities in segments:
+            logger.info(f"  Сегмент: '{seg_name}', города: {cities}")
+
+        if not segments:
+            await message.answer(
+                "⚠️ Нет доступных сегментов",
+                reply_markup=create_back_keyboard("admin_load_leads_bitrix")
+            )
+            await state.clear()
+            return
+
+        # Сохраняем сегменты
+        await state.update_data(segments_list=segments)
+        await state.update_data(back_callback="load_leads_segment_select")
+
+        # Показываем сегменты с отдельным префиксом для Bitrix24 ID
+        keyboard = create_segments_load_keyboard(
+            segments, 
+            page=0, 
+            page_size=10, 
+            prefix="load_bitrix_segment",
+            back_callback="load_leads_segment_select"
+        )
+        
+        await message.answer(
+            ADMIN_LOAD_LEADS_SELECT_SEGMENT,
+            reply_markup=keyboard
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка ввода Bitrix24 ID: {type(e).__name__}: {e}", exc_info=True)
+        await message.answer("⚠️ Ошибка. Введите положительное число")
+
+
+@router.callback_query(F.data.startswith("load_bitrix_segment:"))
+async def handle_bitrix_segment_select(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Обработка выбора сегмента для загрузки на Bitrix24 ID"""
+    try:
+        # СРАЗУ отвечаем на callback чтобы не истёк таймаут
+        await callback.answer()
+        
+        parsed = callback.data.split(":")
+        # ✅ Получаем ИНДЕКС сегмента
+        segment_index = int(parsed[1])
+
+        # Получаем данные из состояния
+        state_data = await state.get_data()
+        segments = state_data.get("segments_list", [])
+
+        # ✅ Проверяем границы
+        if segment_index >= len(segments):
+            logger.error(f"Индекс сегмента вне диапазона: {segment_index} >= {len(segments)}")
+            await callback.message.answer("⚠️ Сегмент не найден")
+            return
+
+        # ✅ Получаем сегмент по индексу
+        segment_data = segments[segment_index]
+        segment_name, cities = segment_data
+
+        # Сохраняем в состоянии
+        await state.update_data(
+            selected_segment=segment_name,
+            segment_index=segment_index
+        )
+
+        logger.info(f"Выбран сегмент: {segment_name}, индекс: {segment_index}, города: {cities}")
+
+        # Проверяем, это "Прочее" сегмент
+        is_other_regular = "Прочее (Обыч.)" in segment_name
+        is_other_plusoviki = "Прочее (Плюсовики)" in segment_name
+        is_other = is_other_regular or is_other_plusoviki
+
+        if not cities:
+            # Нет городов - сразу к количеству
+            await state.update_data(selected_city=None)
+            await state.set_state(AdminLoadLeadsBitrixStates.ENTER_COUNT)
+
+            # Проверяем доступное количество
+            if is_other:
+                other_type = "regular" if is_other_regular else "plusoviki"
+                available_count = await crud.count_other_leads(
+                    session, other_type=other_type, segment=segment_name
+                )
+                # Сохраняем тип "Прочее" для последующего получения лидов
+                await state.update_data(is_other=True, other_type=other_type)
+            else:
+                available_count = await crud.count_available_leads_for_assignment(
+                    session, segment_name, city=None
+                )
+
+            # Получаем back_callback из состояния
+            state_data = await state.get_data()
+            back_callback = state_data.get("back_callback", "admin_menu")
+            
+            logger.info(f"back_callback={back_callback}, available_count={available_count}")
+            
+            # Удаляем предыдущее сообщение
+            try:
+                await callback.message.delete()
+            except Exception as _e:
+                logger.warning(f"Финальный fallback не удался: {type(_e).__name__}: {_e}")
+
+            await callback.message.answer(
+                f"📊 Доступно лидов: {available_count}\n\n"
+                f"{ADMIN_LOAD_LEADS_COUNT}",
+                reply_markup=create_back_keyboard(back_callback)
+            )
+            return
+        
+        # Сохраняем города
+        await state.update_data(cities_list=cities)
+        await state.set_state(AdminLoadLeadsBitrixStates.SELECT_CITY)
+
+        # Получаем back_callback из состояния
+        state_data = await state.get_data()
+        back_callback = state_data.get("back_callback", "admin_menu")
+        
+        # Удаляем предыдущее сообщение
+        await safe_delete_message(callback.message)
+
+        # Показываем города с правильным префиксом и back_callback
+        keyboard = create_cities_load_keyboard(cities, segment_name, segment_index, prefix="load_bitrix_city", back_callback=back_callback)
+        
+        await callback.message.answer(
+            format_html_safe(ADMIN_LOAD_LEADS_SELECT_CITY, segment=segment_name),
+            reply_markup=keyboard
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка выбора сегмента (Bitrix ID): {type(e).__name__}: {e}")
+        await safe_answer_callback(callback, "⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("load_bitrix_city:"))
+async def handle_bitrix_city_select(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Обработка выбора города для загрузки на Bitrix24 ID"""
+    try:
+        parsed = callback.data.split(":")
+        segment_index = int(parsed[1])
+        city_value = parsed[2]
+        
+        # Получаем данные из состояния
+        state_data = await state.get_data()
+        segments = state_data.get("segments_list", [])
+        cities = state_data.get("cities_list", [])
+        
+        if segment_index >= len(segments):
+            await callback.answer("⚠️ Сегмент не найден", show_alert=True)
+            return
+        
+        segment_name = segments[segment_index][0]
+        
+        # Определяем город
+        if city_value == "__ALL__":
+            selected_city = None
+        else:
+            city_index = int(city_value)
+            if city_index >= len(cities):
+                await callback.answer("⚠️ Город не найден", show_alert=True)
+                return
+            selected_city = cities[city_index]
+
+        # Сохраняем город
+        await state.update_data(selected_city=selected_city)
+
+        # Проверяем, это "Прочие" город
+        is_other_regular = selected_city and "Прочие (Обыч.)" in str(selected_city)
+        is_other_plusoviki = selected_city and "Прочие (Плюсовики)" in str(selected_city)
+        is_other = is_other_regular or is_other_plusoviki
+
+        await state.set_state(AdminLoadLeadsBitrixStates.ENTER_COUNT)
+
+        # Проверяем доступное количество
+        if is_other:
+            other_type = "regular" if is_other_regular else "plusoviki"
+            logger.info(f"Выбран 'Прочие': other_type={other_type}, selected_city={selected_city}")
+            available_count = await crud.count_other_leads(
+                session, other_type=other_type, segment=segment_name
+            )
+            logger.info(f"count_other_leads вернул: {available_count}")
+            await state.update_data(is_other=True, other_type=other_type)
+        else:
+            available_count = await crud.count_available_leads_for_assignment(
+                session, segment_name, city=selected_city
+            )
+            logger.info(f"count_available_leads_for_assignment вернул: {available_count}")
+        
+        # Получаем back_callback из состояния
+        state_data = await state.get_data()
+        back_callback = state_data.get("back_callback", "admin_menu")
+        
+        # Удаляем предыдущее сообщение
+        await safe_delete_message(callback.message)
+        
+        await callback.message.answer(
+            f"📊 Доступно лидов: {available_count}\n\n"
+            f"{ADMIN_LOAD_LEADS_COUNT}",
+            reply_markup=create_back_keyboard(back_callback)
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка выбора города (Bitrix ID): {type(e).__name__}: {e}")
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+    
+    await callback.answer()
+
+
+@router.message(AdminLoadLeadsBitrixStates.ENTER_COUNT)
+async def handle_bitrix_count_input(message: Message, state: FSMContext, session: AsyncSession):
+    """Обработка ввода количества для загрузки на Bitrix24 ID"""
+    try:
+        # Получаем данные из состояния ПЕРЕД парсингом
+        state_data = await state.get_data()
+        logger.info(f"handle_bitrix_count_input: state_data = {state_data}")
+        
+        segment = state_data.get("selected_segment")
+        city = state_data.get("selected_city")
+        bitrix_id = state_data.get("bitrix_user_id")
+        
+        logger.info(f"segment={segment}, city={city}, bitrix_id={bitrix_id}")
+        
+        if not segment:
+            logger.error("segment не найден в состоянии!")
+            await message.answer("⚠️ Ошибка: сегмент не выбран. Начните сначала.")
+            await state.clear()
+            return
+        
+        # Парсим количество
+        try:
+            count = int(message.text.strip())
+        except ValueError:
+            await message.answer("❌ Введите число от 1 до 200")
+            return
+
+        # Валидация
+        if count < 1 or count > 200:
+            await message.answer("❌ Количество должно быть от 1 до 200")
+            return
+
+        is_other = state_data.get("is_other", False)
+        other_type = state_data.get("other_type", "regular")
+
+        if is_other:
+            available_count = await crud.count_other_leads(
+                session, other_type=other_type, segment=segment
+            )
+        else:
+            available_count = await crud.count_available_leads_for_assignment(
+                session, segment, city=city
+            )
+
+        if count > available_count:
+            # Недостаточно лидов
+            await state.update_data(requested_count=count)
+            await state.set_state(AdminLoadLeadsBitrixStates.CONFIRM)
+
+            await message.answer(
+                ADMIN_LOAD_LEADS_NOT_ENOUGH.format(
+                    available=available_count,
+                    requested=count
+                ),
+                reply_markup=create_not_enough_leads_keyboard(
+                    available_count, confirm_callback_prefix="load_bitrix"
+                )
+            )
+            return
+
+        # Достаточно лидов - показываем подтверждение
+        await state.update_data(lead_count=count)
+        
+        await safe_delete_message(message)
+        await show_bitrix_confirm(message, state)
+
+    except Exception as e:
+        logger.error(f"Ошибка ввода количества (Bitrix ID): {type(e).__name__}: {e}", exc_info=True)
+        await message.answer("⚠️ Ошибка. Введите число от 1 до 200")
+
+
+async def show_bitrix_confirm(target, state: FSMContext):
+    """Показ подтверждения загрузки на Bitrix24 ID"""
+    state_data = await state.get_data()
+    
+    logger.info(f"show_bitrix_confirm: state_data = {state_data}")
+
+    bitrix_id = state_data.get("bitrix_user_id", 0)
+    segment = state_data.get("selected_segment", "Не указан")
+    city = state_data.get("selected_city")
+    city_text = city or "Все города"
+    count = state_data.get("lead_count", 0)
+    
+    logger.info(f"bitrix_id={bitrix_id}, segment={segment}, city={city_text}, count={count}")
+
+    # Создаём клавиатуру с ПРАВИЛЬНЫМ callback для Bitrix24 ID
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Загрузить", callback_data="load_bitrix_confirm")
+    builder.button(text=BTN_CANCEL, callback_data="load_leads_cancel")
+    builder.adjust(2)
+    
+    await target.answer(
+        ADMIN_LOAD_LEADS_CONFIRM.format(
+            manager_name=f"Bitrix24 ID: {bitrix_id}",
+            segment=segment,
+            city=city_text,
+            count=count
+        ),
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("load_bitrix_confirm_available:"))
+async def confirm_bitrix_load_available(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Подтверждение загрузки доступного количества (сценарий Bitrix24 ID, кнопка «Да, загрузить N»)."""
+    await callback.answer("⏳ Загрузка лидов в Bitrix24...")
+    await safe_delete_message(callback.message)
+    try:
+        await callback.message.answer(
+            "⏳ <b>Загрузка лидов в Bitrix24...</b>\n\nЭто может занять несколько минут."
+        )
+    except Exception as e:
+        logger.warning("Не удалось отправить сообщение о загрузке: %s: %s", type(e).__name__, e)
+
+    parsed = callback.data.split(":")
+    available_count = int(parsed[1])
+    await process_bitrix_load(callback, state, session, available_count)
+
+
+async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, override_count: int = None):
+    """Процесс загрузки лидов на Bitrix24 ID"""
+    try:
+        # Получаем данные из состояния
+        state_data = await state.get_data()
+        
+        logger.info(f"process_bitrix_load: state_data = {state_data}")
+        
+        bitrix_id = state_data.get("bitrix_user_id")
+        segment = state_data.get("selected_segment")
+        city = state_data.get("selected_city")
+        count = override_count or state_data.get("lead_count", 0)
+        is_other = state_data.get("is_other", False)
+        other_type = state_data.get("other_type", "regular")
+
+        logger.info(f"bitrix_id={bitrix_id}, segment={segment}, city={city}, count={count}, is_other={is_other}")
+        
+        if not bitrix_id or not segment:
+            logger.error(f"Нет данных: bitrix_id={bitrix_id}, segment={segment}")
+            await target.answer("⚠️ Ошибка: нет данных для загрузки", show_alert=True)
+            await state.clear()
+            return
+
+        if is_other:
+            # НЕ передаём segment — это отображаемое название, а не реальный сегмент из БД.
+            leads = await crud.get_other_leads_for_assignment(
+                session, other_type=other_type, limit=count
+            )
+        else:
+            leads = await crud.get_available_leads_for_assignment(
+                session, segment, city=city, limit=count
+            )
+        
+        if not leads:
+            await target.answer(
+                ADMIN_LOAD_LEADS_ERROR.format(error="Нет доступных лидов"),
+                reply_markup=create_back_keyboard("admin_menu")
+            )
+            await state.clear()
+            return
+        
+        # Назначаем лиды на Bitrix24 ID (без привязки к менеджеру в боте)
+        lead_ids = [lead.id for lead in leads]
+        
+        # Обновляем статусы лидов - назначаем на Bitrix24 ID
+        now = datetime.now(timezone.utc)
+        await session.execute(
+            update(Lead)
+            .where(
+                Lead.id.in_(lead_ids),
+                Lead.status == LeadStatus.UNIQUE
+            )
+            .values(
+                status=LeadStatus.ASSIGNED,
+                manager_telegram_id=None,  # Нет менеджера в боте
+                assigned_at=now
+            )
+        )
+        await session.flush()
+
+        config = get_config()
+        b = config.bitrix24
+        bitrix_client = get_bitrix24_client(
+            b.webhook_url,
+            request_timeout=b.request_timeout,
+            retry_attempts=b.retry_attempts,
+            retry_delay=b.retry_delay,
+            proxy_url=b.proxy_url or None,
+        )
+        importer = LeadImporter(bitrix_client)
+
+        imported_count = 0
+        for i, lead in enumerate(leads, 1):
+            success, _err = await importer.import_lead(session, lead.id, bitrix_id)
+            if success:
+                imported_count += 1
+            if i % 10 == 0:
+                logger.info(f"⏳ Пауза 1.5 сек после {i} лидов...")
+                await asyncio.sleep(1.5)
+            else:
+                await asyncio.sleep(0.25)
+
+        # Показываем успех (с обработкой ошибок callback)
+        try:
+            # Сначала пытаемся удалить сообщение о начале загрузки
+            await safe_delete_message(target.message)
+            
+            await target.answer(
+                ADMIN_LOAD_LEADS_BITRIX_SUCCESS.format(
+                    bitrix_id=bitrix_id,
+                    count=imported_count,
+                    segment=segment
+                ),
+                reply_markup=create_back_keyboard("admin_menu")
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить уведомление: {type(e).__name__}: {e}")
+            # Пробуем отправить новым сообщением если callback истёк
+            try:
+                await target.bot.send_message(
+                    chat_id=target.from_user.id,
+                    text=ADMIN_LOAD_LEADS_BITRIX_SUCCESS.format(
+                        bitrix_id=bitrix_id,
+                        count=imported_count,
+                        segment=segment
+                    ),
+                    reply_markup=create_back_keyboard("admin_menu")
+                )
+            except Exception as e2:
+                logger.error(f"Не удалось отправить сообщение: {type(e2).__name__}: {e2}")
+
+        # Логируем
+        logger.info(
+            f"Админ {target.from_user.id} загрузил {imported_count} лидов на Bitrix24 ID {bitrix_id} "
+            f"(сегмент: {segment}, город: {city or 'Все'})"
+        )
+
+        # Очищаем состояние
+        await state.clear()
+
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Ошибка загрузки на Bitrix24 ID: {type(e).__name__}: {e}")
+        
+        # Пробуем отправить ошибку
+        try:
+            # Сначала пытаемся удалить сообщение о начале загрузки
+            await safe_delete_message(target.message)
+            
+            await target.answer(
+                ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
+                reply_markup=create_back_keyboard("admin_menu")
+            )
+        except Exception:
+            try:
+                await target.bot.send_message(
+                    chat_id=target.from_user.id,
+                    text=ADMIN_LOAD_LEADS_ERROR.format(error=str(e)),
+                    reply_markup=create_back_keyboard("admin_menu")
+                )
+            except Exception as _e:
+                logger.warning(f"Финальный fallback не удался: {type(_e).__name__}: {_e}")
+        
+        await state.clear()

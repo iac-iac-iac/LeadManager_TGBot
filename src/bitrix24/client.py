@@ -4,7 +4,7 @@ Bitrix24 REST API клиент
 import asyncio
 import re
 import random
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Set
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -14,6 +14,24 @@ from aiohttp import ClientTimeout
 from ..logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def merge_duplicate_element_lists(api_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Элементы-дубли из ответа find_duplicates_by_comm / внутреннего результата.
+    В проекте исторически используется опечатка DUBLICATE_*; у портала может быть DUPLICATE_*.
+    """
+    seen: Set[Any] = set()
+    out: List[Dict[str, Any]] = []
+    for key in ("DUBLICATE_ELEMENT_LIST", "DUPLICATE_ELEMENT_LIST"):
+        for item in (api_result.get(key) or []):
+            if not isinstance(item, dict):
+                continue
+            iid = item.get("id")
+            if iid is not None and iid not in seen:
+                seen.add(iid)
+                out.append(item)
+    return out
 
 
 class Bitrix24Error(Exception):
