@@ -496,6 +496,22 @@ async def show_bitrix_confirm(target, state: FSMContext):
     )
 
 
+@router.callback_query(F.data == "load_bitrix_confirm")
+async def handle_load_bitrix_confirm(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+):
+    """Подтверждение кнопкой «Загрузить» в сценарии Bitrix24 ID (`show_bitrix_confirm`)."""
+    await callback.answer("⏳ Загрузка лидов в Bitrix24...")
+    await safe_delete_message(callback.message)
+    try:
+        await callback.message.answer(
+            "⏳ <b>Загрузка лидов в Bitrix24...</b>\n\nЭто может занять несколько минут."
+        )
+    except Exception as e:
+        logger.warning("Не удалось отправить сообщение о загрузке: %s: %s", type(e).__name__, e)
+    await process_bitrix_load(callback, state, session, None)
+
+
 @router.callback_query(F.data.startswith("load_bitrix_confirm_available:"))
 async def confirm_bitrix_load_available(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Подтверждение загрузки доступного количества (сценарий Bitrix24 ID, кнопка «Да, загрузить N»)."""
@@ -657,3 +673,10 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
                 logger.warning(f"Финальный fallback не удался: {type(_e).__name__}: {_e}")
         
         await state.clear()
+
+
+async def confirm_bitrix_load(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+) -> None:
+    """Вызывается из ``manager_flow.confirm_load`` после UI, если состояние — Bitrix ID (``load_leads_confirm``)."""
+    await process_bitrix_load(callback, state, session, None)
