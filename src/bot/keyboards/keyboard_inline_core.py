@@ -9,7 +9,9 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from ..messages.texts import (
     BTN_BACK, BTN_CANCEL,
     BTN_YES, BTN_NO,
-    MANAGER_GET_LEADS, MANAGER_MY_STATS, MANAGER_ABOUT,
+    MANAGER_GET_LEADS, MANAGER_LUCKY, MANAGER_MY_STATS, MANAGER_ABOUT,
+    LUCKY_BTN_REGULAR,
+    LUCKY_BTN_PLUSOVIKI,
     ADMIN_IMPORT_CSV, ADMIN_DUPLICATE_CHECK, ADMIN_STATS,
     ADMIN_EXPORT, ADMIN_SEGMENTS, ADMIN_CLEANUP, ADMIN_PENDING_USERS, ADMIN_BROADCAST, ADMIN_PENDING_CITIES,
     DUPLICATE_CHECK_RUN,
@@ -33,10 +35,21 @@ def create_manager_main_menu() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
     builder.button(text=MANAGER_GET_LEADS, callback_data="leads_menu")
+    builder.button(text=MANAGER_LUCKY, callback_data="lucky_leads_menu")
     builder.button(text=MANAGER_MY_STATS, callback_data="my_stats")
     builder.button(text=FEEDBACK_BUTTON, callback_data="feedback_main")
     builder.button(text=MANAGER_ABOUT, callback_data="about")
 
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def create_lucky_band_keyboard() -> InlineKeyboardMarkup:
+    """Выбор пояса UTC для «Мне повезёт!»"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=LUCKY_BTN_REGULAR, callback_data="lucky_pick:regular")
+    builder.button(text=LUCKY_BTN_PLUSOVIKI, callback_data="lucky_pick:plusoviki")
+    builder.button(text=BTN_BACK, callback_data="back_to_main")
     builder.adjust(1)
     return builder.as_markup()
 

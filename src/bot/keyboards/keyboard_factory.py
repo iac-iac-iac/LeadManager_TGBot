@@ -29,6 +29,7 @@ from .keyboard_inline_core import (
     create_manager_reply_menu,
     create_admin_reply_menu,
     create_cancel_keyboard,
+    create_lucky_band_keyboard,
 )
 from .keyboard_tickets_bot import (
     create_feedback_main_menu_keyboard,
@@ -74,6 +75,7 @@ __all__ = [
     "create_manager_reply_menu",
     "create_admin_reply_menu",
     "create_cancel_keyboard",
+    "create_lucky_band_keyboard",
     "create_feedback_main_menu_keyboard",
     "create_feedback_confirm_keyboard",
     "create_ticket_filter_keyboard",

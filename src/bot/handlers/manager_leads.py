@@ -8,8 +8,11 @@
 4. Ввод количества (≤200)
 5. Проверка доступности
 6. Подтверждение
-7. Выдача и импорт в Bitrix24
+7. Выдача и постановка импорта в Bitrix24 в общую очередь (последовательная обработка)
+
+«Мне повезёт!»: выбор UTC-пояса → ввод диапазона 10–200 → случайная партия из пула UNIQUE.
 """
+import random
 from typing import Dict, List, Optional
 
 from aiogram import Router, F
@@ -17,7 +20,6 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from ..states import ManagerStates
 from ..messages.texts import (
@@ -27,9 +29,17 @@ from ..messages.texts import (
     LEADS_COUNT_INVALID,
     LEADS_NOT_ENOUGH,
     LEADS_CONFIRM,
-    LEADS_ISSUED,
     LEADS_CANCELLED,
     MANAGER_MAIN_MENU,
+    IMPORT_QUEUED,
+    MANAGER_IMPORT_QUEUE_COMPLETE,
+    LUCKY_MENU_INTRO,
+    LUCKY_ENTER_RANGE,
+    LUCKY_RANGE_INVALID,
+    LUCKY_NOT_ENOUGH_POOL,
+    LUCKY_SEGMENT_REGULAR,
+    LUCKY_SEGMENT_PLUSOVIKI,
+    LUCKY_CITY_LABEL,
 )
 from ..keyboards.keyboard_factory import (
     create_segments_keyboard,
@@ -37,18 +47,113 @@ from ..keyboards.keyboard_factory import (
     create_confirmation_keyboard,
     create_back_keyboard,
     create_manager_main_menu,
+    create_lucky_band_keyboard,
     parse_callback_data,
 )
 from ...database import crud
-from ...database.models import Lead, LeadStatus, User, UserRole
-from ...bitrix24.client import Bitrix24Client
-from ...bitrix24.leads import import_assigned_leads
 from ...logger import get_logger
 from ...utils.html_utils import safe_delete_message, format_html_safe
+from ...utils.lucky_range import parse_lucky_leads_range
 
 logger = get_logger(__name__)
 
 router = Router()
+
+
+async def enqueue_manager_import_queue(
+    session: AsyncSession,
+    bot,
+    telegram_id: str,
+    lead_ids: List[int],
+    assigned_count: int,
+    segment: str,
+    city_text: str,
+    reply_message: Optional[Message] = None,
+) -> bool:
+    """
+    Постановка назначенных лидов в очередь импорта Bitrix и уведомление IMPORT_QUEUED.
+
+    Returns:
+        False если очередь переполнена.
+    """
+    user = await crud.get_user_by_telegram_id(session, telegram_id)
+    bitrix24_user_id = user.bitrix24_user_id if user else None
+    if bitrix24_user_id is not None:
+        bitrix24_user_id = int(bitrix24_user_id)
+
+    from ...bitrix24.import_queue import get_import_queue
+
+    import_queue = get_import_queue()
+
+    async def import_complete_callback(stats: Dict[str, int]):
+        try:
+            imported_count = stats.get("imported", 0)
+            error_count = stats.get("errors", 0)
+            errors_line = ""
+            if error_count:
+                errors_line = f"\n⚠️ Ошибок при импорте: {error_count}"
+
+            text = format_html_safe(
+                MANAGER_IMPORT_QUEUE_COMPLETE,
+                segment=segment,
+                city=city_text,
+                assigned=assigned_count,
+                imported=imported_count,
+                errors_line=errors_line,
+            )
+
+            await bot.send_message(
+                chat_id=telegram_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=create_manager_main_menu(),
+            )
+        except Exception as e:
+            logger.error(f"Ошибка уведомления менеджера об импорте: {e}")
+
+    queued = await import_queue.add_import(
+        lead_ids=lead_ids,
+        manager_id=telegram_id,
+        bitrix_user_id=bitrix24_user_id,
+        callback=import_complete_callback,
+    )
+
+    if not queued:
+        return False
+
+    body = format_html_safe(
+        IMPORT_QUEUED,
+        count=assigned_count,
+        segment=segment,
+        city=city_text,
+    )
+    try:
+        if reply_message:
+            await reply_message.answer(
+                body,
+                parse_mode="HTML",
+                reply_markup=create_manager_main_menu(),
+            )
+        else:
+            await bot.send_message(
+                chat_id=telegram_id,
+                text=body,
+                parse_mode="HTML",
+                reply_markup=create_manager_main_menu(),
+            )
+    except Exception as e:
+        logger.error(f"Не удалось отправить сообщение об очереди: {type(e).__name__}: {e}")
+        try:
+            await bot.send_message(
+                chat_id=telegram_id,
+                text=body,
+                parse_mode="HTML",
+                reply_markup=create_manager_main_menu(),
+            )
+        except Exception as e2:
+            logger.warning(f"Не удалось отправить сообщение напрямую: {e2}")
+
+    return True
 
 
 # =============================================================================
@@ -540,19 +645,17 @@ async def show_lead_confirmation(
 
 
 @router.callback_query(F.data.startswith("confirm_leads:"))
-async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession, bitrix24_client: Bitrix24Client):
-    """Подтверждение выдачи лидов"""
+async def handle_leads_confirm(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+):
+    """Подтверждение выдачи лидов (импорт в Bitrix — через общую очередь)"""
     # СРАЗУ отвечаем на callback чтобы не истёк таймаут
-    await callback.answer("⏳ Загрузка лидов в Bitrix24...")
+    await callback.answer("⏳ Постановка в очередь импорта...")
 
     # Удаляем сообщение с кнопкой подтверждения чтобы нельзя было нажать повторно
     await safe_delete_message(callback.message)
-    
-    # Отправляем сообщение о начале загрузки (best-effort)
-    try:
-        await callback.message.answer("⏳ <b>Загрузка лидов в Bitrix24...</b>\n\nЭто может занять несколько минут.")
-    except Exception as e:
-        logger.warning(f"Не удалось отправить сообщение о загрузке: {type(e).__name__}: {e}")
 
     telegram_id = str(callback.from_user.id)
 
@@ -612,51 +715,208 @@ async def handle_leads_confirm(callback: CallbackQuery, state: FSMContext, sessi
         await state.clear()
         return
 
-    # Импортируем в Bitrix24
-    user = await crud.get_user_by_telegram_id(session, telegram_id)
-    bitrix24_user_id = user.bitrix24_user_id if user else None
+    await session.flush()
 
-    stats = await import_assigned_leads(
-        session,
-        bitrix24_client,
-        telegram_id,
-        bitrix24_user_id
+    city_text = city or "Все города"
+
+    ok = await enqueue_manager_import_queue(
+        session=session,
+        bot=callback.bot,
+        telegram_id=telegram_id,
+        lead_ids=lead_ids,
+        assigned_count=assigned_count,
+        segment=segment,
+        city_text=city_text,
+        reply_message=callback.message,
     )
 
-    # Commit происходит автоматически в DatabaseSessionMiddleware
-
-    # Отправляем подтверждение с фактическим количеством
-    city_text = city or "Все города"
-    try:
-        await callback.message.answer(
-            format_html_safe(
-                LEADS_ISSUED,
-                count=assigned_count,
-                segment=segment,
-                city=city_text
-            ),
-            reply_markup=create_manager_main_menu()
-        )
-    except Exception as e:
-        logger.error(f"Не удалось отправить подтверждение: {type(e).__name__}: {e}")
+    if not ok:
         try:
-            await callback.bot.send_message(
-                chat_id=telegram_id,
-                text=format_html_safe(
-                    LEADS_ISSUED,
-                    count=assigned_count,
-                    segment=segment,
-                    city=city_text
-                ),
-                reply_markup=create_manager_main_menu()
+            await callback.message.answer(
+                "❌ Очередь импорта переполнена. Попробуйте позже или обратитесь к администратору.",
+                reply_markup=create_manager_main_menu(),
             )
-        except Exception as e2:
-            logger.warning(f"Не удалось отправить сообщение напрямую: {e2}")
+        except Exception as e:
+            logger.warning(f"Не удалось отправить сообщение об ошибке очереди: {e}")
+        await state.clear()
+        return
 
-    # Очищаем состояние
     await state.clear()
 
-    logger.info(f"Менеджер {telegram_id} получил {assigned_count} лидов ({segment}, {city})")
+    logger.info(
+        f"Менеджер {telegram_id}: {assigned_count} лидов в очереди импорта ({segment}, {city})"
+    )
+
+
+@router.callback_query(F.data == "lucky_leads_menu")
+async def handle_lucky_leads_menu(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
+    """Меню «Мне повезёт!»"""
+    await state.clear()
+
+    telegram_id = str(callback.from_user.id)
+    user = await crud.get_user_by_telegram_id(session, telegram_id)
+    if not user or user.status.value != "ACTIVE":
+        await callback.answer("🚫 Вы не активированы", show_alert=True)
+        return
+
+    regular_available = await crud.count_leads_by_utc_band(
+        session, "regular", exclude_telegram_id=telegram_id
+    )
+    plus_available = await crud.count_leads_by_utc_band(
+        session, "plusoviki", exclude_telegram_id=telegram_id
+    )
+
+    await callback.message.answer(
+        format_html_safe(
+            LUCKY_MENU_INTRO,
+            regular_available=regular_available,
+            plus_available=plus_available,
+        ),
+        parse_mode="HTML",
+        reply_markup=create_lucky_band_keyboard(),
+    )
+    try:
+        await callback.answer()
+    except Exception as e:
+        logger.debug(f"Не удалось ответить на callback: {type(e).__name__}: {e}")
+
+
+@router.callback_query(F.data.startswith("lucky_pick:"))
+async def handle_lucky_pick(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
+    """Выбор пояса UTC для случайной выдачи"""
+    telegram_id = str(callback.from_user.id)
+    user = await crud.get_user_by_telegram_id(session, telegram_id)
+    if not user or user.status.value != "ACTIVE":
+        await callback.answer("🚫 Вы не активированы", show_alert=True)
+        return
+
+    band = callback.data.split(":", 1)[1]
+    if band not in ("regular", "plusoviki"):
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+        return
+
+    available = await crud.count_leads_by_utc_band(
+        session, band, exclude_telegram_id=telegram_id
+    )
+    await state.update_data(lucky_band=band)
+    await state.set_state(ManagerStates.LUCKY_LEADS_RANGE)
+
+    prompt = (
+        f"📊 Доступно в этом поясе: <b>{available}</b>\n\n"
+        f"{LUCKY_ENTER_RANGE.strip()}"
+    )
+    await callback.message.answer(
+        prompt,
+        parse_mode="HTML",
+        reply_markup=create_back_keyboard("lucky_leads_menu"),
+    )
+    try:
+        await callback.answer()
+    except Exception as e:
+        logger.debug(f"Не удалось ответить на callback: {type(e).__name__}: {e}")
+
+
+@router.message(StateFilter(ManagerStates.LUCKY_LEADS_RANGE))
+async def handle_lucky_range_input(
+    message: Message, state: FSMContext, session: AsyncSession
+):
+    """Ввод диапазона и случайная выдача"""
+    back_kb = create_back_keyboard("lucky_leads_menu")
+    parsed = parse_lucky_leads_range(message.text)
+    if not parsed:
+        await message.answer(
+            LUCKY_RANGE_INVALID,
+            parse_mode="HTML",
+            reply_markup=back_kb,
+        )
+        return
+
+    min_c, max_c = parsed
+    data = await state.get_data()
+    band = data.get("lucky_band")
+    if band not in ("regular", "plusoviki"):
+        await state.clear()
+        await message.answer("⚠️ Сессия устарела. Начните с «Мне повезёт!» снова.")
+        return
+
+    telegram_id = str(message.from_user.id)
+    user = await crud.get_user_by_telegram_id(session, telegram_id)
+    if not user or user.status.value != "ACTIVE":
+        await state.clear()
+        await message.answer("🚫 Вы не активированы", reply_markup=create_manager_main_menu())
+        return
+
+    available = await crud.count_leads_by_utc_band(
+        session, band, exclude_telegram_id=telegram_id
+    )
+    if available < min_c:
+        await message.answer(
+            format_html_safe(
+                LUCKY_NOT_ENOUGH_POOL,
+                available=available,
+                min_count=min_c,
+            ),
+            parse_mode="HTML",
+            reply_markup=back_kb,
+        )
+        return
+
+    target_n = random.randint(min_c, max_c)
+    target_n = min(target_n, available)
+
+    leads = await crud.get_random_leads_by_utc_band(
+        session,
+        band,
+        limit=target_n,
+        exclude_telegram_id=telegram_id,
+    )
+    if not leads:
+        await message.answer(
+            "⚠️ Не удалось выбрать лиды. Попробуйте ещё раз.",
+            reply_markup=back_kb,
+        )
+        return
+
+    lead_ids = [lead.id for lead in leads]
+    assigned_count = await crud.assign_leads_to_manager(session, lead_ids, telegram_id)
+    if assigned_count == 0:
+        await message.answer(
+            "⚠️ Лиды закончились. Попробуйте позже.",
+            reply_markup=create_manager_main_menu(),
+        )
+        await state.clear()
+        return
+
+    await session.flush()
+
+    segment_label = LUCKY_SEGMENT_REGULAR if band == "regular" else LUCKY_SEGMENT_PLUSOVIKI
+
+    ok = await enqueue_manager_import_queue(
+        session=session,
+        bot=message.bot,
+        telegram_id=telegram_id,
+        lead_ids=lead_ids,
+        assigned_count=assigned_count,
+        segment=segment_label,
+        city_text=LUCKY_CITY_LABEL,
+        reply_message=message,
+    )
+
+    if not ok:
+        await message.answer(
+            "❌ Очередь импорта переполнена. Попробуйте позже или обратитесь к администратору.",
+            reply_markup=create_manager_main_menu(),
+        )
+
+    await state.clear()
+
+    logger.info(
+        f"Менеджер {telegram_id}: lucky {band} target={target_n} assigned={assigned_count}"
+    )
 
 
 @router.callback_query(F.data == "cancel_leads")

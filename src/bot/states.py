@@ -19,6 +19,7 @@ class ManagerStates(StatesGroup):
     LEADS_CITY = State()  # Выбор города
     LEADS_COUNT = State()  # Ввод количества
     LEADS_CONFIRM = State()  # Подтверждение
+    LUCKY_LEADS_RANGE = State()  # «Мне повезёт!»: ввод диапазона после выбора пояса
 
 
 # =============================================================================

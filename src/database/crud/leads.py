@@ -164,6 +164,79 @@ async def count_available_leads(
     return result.scalar() or 0
 
 
+def _utc_band_sql_condition(band: str, threshold: int):
+    """Условие на City.utc_offset (через COALESCE) для пула «Мне повезёт!»."""
+    utc_expr = func.coalesce(City.utc_offset, 0)
+    if band == "regular":
+        return utc_expr < threshold
+    if band == "plusoviki":
+        return utc_expr >= threshold
+    raise ValueError(f"Unknown utc band: {band!r}")
+
+
+async def count_leads_by_utc_band(
+    session: AsyncSession,
+    band: str,
+    exclude_telegram_id: Optional[str] = None,
+    threshold: int = 3,
+) -> int:
+    """Число UNIQUE лидов в поясе UTC (все незамороженные), с учётом exclude_telegram_id."""
+    utc_filter = _utc_band_sql_condition(band, threshold)
+    stmt = (
+        select(func.count(Lead.id))
+        .select_from(Lead)
+        .outerjoin(City, Lead.city == City.name)
+        .where(
+            Lead.status == LeadStatus.UNIQUE,
+            utc_filter,
+            _lead_row_not_frozen_filter(),
+        )
+    )
+    if exclude_telegram_id:
+        stmt = stmt.where(
+            or_(
+                Lead.manager_telegram_id.is_(None),
+                Lead.manager_telegram_id == exclude_telegram_id,
+            )
+        )
+    result = await session.execute(stmt)
+    return result.scalar() or 0
+
+
+async def get_random_leads_by_utc_band(
+    session: AsyncSession,
+    band: str,
+    limit: int,
+    exclude_telegram_id: Optional[str] = None,
+    threshold: int = 3,
+) -> List[Lead]:
+    """Случайная выборка до limit лидов из пула по UTC-поясу."""
+    if limit <= 0:
+        return []
+    utc_filter = _utc_band_sql_condition(band, threshold)
+    conditions = [
+        Lead.status == LeadStatus.UNIQUE,
+        utc_filter,
+        _lead_row_not_frozen_filter(),
+    ]
+    if exclude_telegram_id:
+        conditions.append(
+            or_(
+                Lead.manager_telegram_id.is_(None),
+                Lead.manager_telegram_id == exclude_telegram_id,
+            )
+        )
+    stmt = (
+        select(Lead)
+        .outerjoin(City, Lead.city == City.name)
+        .where(and_(*conditions))
+        .order_by(func.random())
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def count_other_leads(
     session: AsyncSession,
     other_type: str,
