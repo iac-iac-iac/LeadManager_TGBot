@@ -597,6 +597,7 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
             retry_attempts=b.retry_attempts,
             retry_delay=b.retry_delay,
             proxy_url=b.proxy_url or None,
+            min_request_interval_sec=b.min_request_interval_sec,
         )
         importer = LeadImporter(bitrix_client)
 

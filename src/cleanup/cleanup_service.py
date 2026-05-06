@@ -6,7 +6,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Dict
 
-from sqlalchemy import delete
+from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database.models import Log, Lead, LeadStatus
@@ -14,6 +14,18 @@ from ..database import crud
 from ..logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def normalize_cleanup_type(raw: str) -> str:
+    """
+    Приводит тип очистки из callback (`cleanup_logs`, `logs`) к виду, который понимает run_cleanup.
+    """
+    s = (raw or "").strip()
+    if s.startswith("cleanup_"):
+        s = s[len("cleanup_"):]
+    if s not in ("logs", "duplicates", "imported", "all"):
+        raise ValueError(f"Неизвестный тип очистки: {raw!r}")
+    return s
 
 
 class CleanupService:
@@ -103,7 +115,7 @@ class CleanupService:
         result = await self.session.execute(
             delete(Lead).where(
                 Lead.status == LeadStatus.IMPORTED,
-                Lead.imported_at < cutoff_date
+                func.coalesce(Lead.imported_at, Lead.created_at) < cutoff_date,
             )
         )
 
@@ -166,6 +178,57 @@ class CleanupService:
         
         return stats
 
+    async def cleanup_duplicate_and_imported_forced(
+        self,
+        older_than_days: int,
+    ) -> Dict[str, int]:
+        """
+        Принудительная очистка: DUPLICATE и IMPORTED за один проход по общему порогу «старше N дней».
+
+        DUPLICATE — по ``created_at``. IMPORTED — по ``imported_at``, иначе по ``created_at``.
+        """
+        if older_than_days < 1:
+            raise ValueError("older_than_days должен быть >= 1")
+
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+        logger.info(
+            "Принудительная очистка DUPLICATE+IMPORTED: "
+            f"older_than_days={older_than_days}, cutoff={cutoff_date}"
+        )
+
+        dup_result = await self.session.execute(
+            delete(Lead).where(
+                Lead.status == LeadStatus.DUPLICATE,
+                Lead.created_at < cutoff_date,
+            )
+        )
+        duplicates_deleted = dup_result.rowcount or 0
+
+        imp_result = await self.session.execute(
+            delete(Lead).where(
+                Lead.status == LeadStatus.IMPORTED,
+                func.coalesce(Lead.imported_at, Lead.created_at) < cutoff_date,
+            )
+        )
+        imported_deleted = imp_result.rowcount or 0
+
+        await self.session.flush()
+
+        await crud.create_log(
+            self.session,
+            event_type="CLEANUP",
+            description=(
+                f"Принудительно DUPLICATE+IMPORTED: порог {older_than_days} дн.; "
+                f"удалено dup={duplicates_deleted}, imp={imported_deleted}"
+            ),
+        )
+
+        logger.info(
+            f"Принудительная очистка завершена: dup={duplicates_deleted}, imp={imported_deleted}"
+        )
+
+        return {"duplicates": duplicates_deleted, "imported": imported_deleted}
+
 
 async def run_cleanup(
     session: AsyncSession,
@@ -188,15 +251,26 @@ async def run_cleanup(
         Статистика очистки
     """
     service = CleanupService(session)
-    
-    if cleanup_type == 'logs':
+
+    if cleanup_type == "logs":
         count = await service.cleanup_logs(logs_days)
-        return {'logs': count}
-    elif cleanup_type == 'duplicates':
+        return {"logs": count}
+    if cleanup_type == "duplicates":
         count = await service.cleanup_duplicate_leads(duplicate_days)
-        return {'duplicates': count}
-    elif cleanup_type == 'imported':
+        return {"duplicates": count}
+    if cleanup_type == "imported":
         count = await service.cleanup_imported_leads(imported_days)
-        return {'imported': count}
-    else:  # 'all'
+        return {"imported": count}
+    if cleanup_type == "all":
         return await service.run_full_cleanup(logs_days, duplicate_days, imported_days)
+
+    raise ValueError(f"Неизвестный тип очистки: {cleanup_type!r}")
+
+
+async def run_forced_duplicate_import_cleanup(
+    session: AsyncSession,
+    older_than_days: int,
+) -> Dict[str, int]:
+    """Принудительное удаление DUPLICATE и IMPORTED по общему порогу возраста (дней)."""
+    service = CleanupService(session)
+    return await service.cleanup_duplicate_and_imported_forced(older_than_days)

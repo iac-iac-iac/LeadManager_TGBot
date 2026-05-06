@@ -14,6 +14,7 @@ from .client import Bitrix24Client, Bitrix24Error, merge_duplicate_element_lists
 from ..database.models import Lead, LeadStatus
 from ..database import crud
 from ..logger import get_logger
+from ..config import get_config
 
 logger = get_logger(__name__)
 
@@ -134,24 +135,31 @@ class DuplicateChecker:
         self,
         session: AsyncSession,
         lead_ids: List[int],
-        batch_size: int = 100,  # Увеличено с 10 до 100 для больших объёмов
-        max_parallel: int = 2,  # Уменьшено с 3 до 2 для снижения нагрузки
-        rate_limit_delay: float = 1.0  # Увеличено с 0.5 до 1.0 сек
+        max_parallel: Optional[int] = None,
     ) -> Dict[str, int]:
         """
         Пакетная проверка лидов на дубли с параллельной обработкой
 
+        Интенсивность запросов к Bitrix24 ограничивается в Bitrix24Client
+        (см. bitrix24.rest_sustained_rps в config). Параллелизм — в конфиге
+        ``duplicate_check_max_parallel`` или аргумент ``max_parallel``.
+
         Args:
             session: Сессия БД
             lead_ids: Список ID лидов для проверки
-            batch_size: Размер пакета (для обратной совместимости)
-            max_parallel: Максимальное количество параллельных запросов
-            rate_limit_delay: Задержка между запросами для одного воркера
+            max_parallel: Переопределить число параллельных воркеров (по умолчанию из конфига)
 
         Returns:
             Статистика: {"duplicates": N, "unique": N, "errors": N}
         """
         stats = {"duplicates": 0, "unique": 0, "errors": 0}
+
+        cfg_bitrix = get_config().bitrix24
+        mp = (
+            cfg_bitrix.duplicate_check_max_parallel
+            if max_parallel is None
+            else max(1, min(32, max_parallel))
+        )
 
         # Получаем лиды из БД
         leads = []
@@ -160,13 +168,16 @@ class DuplicateChecker:
             if lead and lead.status == LeadStatus.NEW:
                 leads.append(lead)
 
-        logger.info(f"🔍 Начата проверка {len(leads)} лидов на дубли (параллелизм: {max_parallel}, задержка: {rate_limit_delay}с)")
+        logger.info(
+            f"🔍 Начата проверка {len(leads)} лидов на дубли "
+            f"(параллелизм: {mp}, устойчивая скорость REST ~{cfg_bitrix.rest_sustained_rps} запросов/с)"
+        )
 
         if not leads:
             return stats
 
         # Semaphore для ограничения параллелизма
-        semaphore = asyncio.Semaphore(max_parallel)
+        semaphore = asyncio.Semaphore(mp)
 
         async def check_single_lead(lead: Lead) -> Tuple[int, str]:
             """

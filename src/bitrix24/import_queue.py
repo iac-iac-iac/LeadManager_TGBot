@@ -30,12 +30,14 @@ logger = get_logger(__name__)
 def _bitrix_client_from_config():
     """Те же параметры клиента, что и при инициализации в main.py (таймауты, прокси)."""
     cfg = get_config()
+    b = cfg.bitrix24
     return get_bitrix24_client(
-        cfg.bitrix24.webhook_url,
-        request_timeout=cfg.bitrix24.request_timeout,
-        retry_attempts=cfg.bitrix24.retry_attempts,
-        retry_delay=cfg.bitrix24.retry_delay,
-        proxy_url=cfg.bitrix24.proxy_url or None,
+        b.webhook_url,
+        request_timeout=b.request_timeout,
+        retry_attempts=b.retry_attempts,
+        retry_delay=b.retry_delay,
+        proxy_url=b.proxy_url or None,
+        min_request_interval_sec=b.min_request_interval_sec,
     )
 
 

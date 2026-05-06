@@ -392,7 +392,26 @@ CLEANUP_MENU = """
 
 CLEANUP_LOGS = "🗑 Очистить логи старше 30 дней"
 CLEANUP_DUPLICATES = "🗑 Очистить лиды со статусом DUPLICATE"
-CLEANUP_IMPORTED = "🗑 Очистить лиды со статусом IMPORTED (старше 90 дней)"
+CLEANUP_IMPORTED = "🗑 Очистить лиды со статусом IMPORTED (старше 180 дней)"
+CLEANUP_FORCE = "🔥 Принудительно: DUPLICATE + IMPORTED (период)"
+CLEANUP_FORCE_MENU = """
+🔥 Принудительная очистка: DUPLICATE и IMPORTED
+
+Удаляются записи старше выбранного числа дней (от текущего времени в UTC):
+• DUPLICATE — по дате создания
+• IMPORTED — по дате импорта; если её нет — по дате создания
+
+Выберите порог:
+"""
+CLEANUP_FORCE_CONFIRM = (
+    "⚠️ Удалить все DUPLICATE и все IMPORTED старше {days} дн.? Действие необратимо."
+)
+CLEANUP_FORCE_SUCCESS = (
+    "✅ Принудительная очистка завершена.\n\n"
+    "Удалено DUPLICATE: {duplicates}\n"
+    "Удалено IMPORTED: {imported}\n"
+    "Всего: {total}"
+)
 
 CLEANUP_CONFIRM = """
 ⚠️ Подтверждение очистки

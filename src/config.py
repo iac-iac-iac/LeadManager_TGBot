@@ -47,6 +47,31 @@ class Bitrix24Config(BaseModel):
         }
     )
     default_service_type_id: int = 101
+    # Лимиты облака Bitrix24 REST: https://apidocs.bitrix24.com/settings/performance/limits.html
+    # Устойчивая скорость (Y): типовые тарифы — 2 запроса/с, Enterprise — 5/с. 0 = не выдерживать интервал на клиенте.
+    rest_sustained_rps: float = 2.0
+    # Сколько лидов проверять параллельно (каждый лид — несколько REST-вызовов). При 2 req/s безопасно 1.
+    duplicate_check_max_parallel: int = 1
+
+    @property
+    def min_request_interval_sec(self) -> float:
+        if self.rest_sustained_rps <= 0:
+            return 0.0
+        return 1.0 / float(self.rest_sustained_rps)
+
+    @field_validator("rest_sustained_rps")
+    @classmethod
+    def _rest_rps_valid(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("bitrix24.rest_sustained_rps must be >= 0")
+        return float(v)
+
+    @field_validator("duplicate_check_max_parallel")
+    @classmethod
+    def _dup_parallel_valid(cls, v: int) -> int:
+        if v < 1 or v > 32:
+            raise ValueError("bitrix24.duplicate_check_max_parallel must be between 1 and 32")
+        return int(v)
 
     @field_validator("webhook_url", mode="before")
     @classmethod

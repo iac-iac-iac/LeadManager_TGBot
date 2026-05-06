@@ -15,7 +15,7 @@ from ..messages.texts import (
     ADMIN_IMPORT_CSV, ADMIN_DUPLICATE_CHECK, ADMIN_STATS,
     ADMIN_EXPORT, ADMIN_SEGMENTS, ADMIN_CLEANUP, ADMIN_PENDING_USERS, ADMIN_BROADCAST, ADMIN_PENDING_CITIES,
     DUPLICATE_CHECK_RUN,
-    CLEANUP_LOGS, CLEANUP_DUPLICATES, CLEANUP_IMPORTED,
+    CLEANUP_LOGS, CLEANUP_DUPLICATES, CLEANUP_IMPORTED, CLEANUP_FORCE,
     SEGMENT_FREEZE, SEGMENT_UNFREEZE,
     PENDING_USER_APPROVE, PENDING_USER_REJECT,
     FEEDBACK_BUTTON, TICKETS_BUTTON,
@@ -342,8 +342,22 @@ def create_cleanup_keyboard() -> InlineKeyboardMarkup:
     builder.button(text=CLEANUP_LOGS, callback_data="cleanup_logs")
     builder.button(text=CLEANUP_DUPLICATES, callback_data="cleanup_duplicates")
     builder.button(text=CLEANUP_IMPORTED, callback_data="cleanup_imported")
+    builder.button(text=CLEANUP_FORCE, callback_data="cleanup_force_menu")
     builder.button(text=BTN_BACK, callback_data="admin_menu")
     
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def create_cleanup_force_period_keyboard() -> InlineKeyboardMarkup:
+    """Порог возраста (дни) для принудительной очистки DUPLICATE + IMPORTED."""
+    builder = InlineKeyboardBuilder()
+    for days in (7, 30, 90, 180, 365):
+        builder.button(
+            text=f"📅 Старше {days} дн.",
+            callback_data=f"cleanup_force_pick:{days}",
+        )
+    builder.button(text=BTN_BACK, callback_data="admin_cleanup")
     builder.adjust(1)
     return builder.as_markup()
 

@@ -316,6 +316,21 @@ Bitrix24Error: Access denied. Insufficient privileges
 
 ---
 
+### Лимит интенсивности REST (503, QUERY_LIMIT_EXCEEDED)
+
+**Официально для облака Bitrix24:** устойчивая скорость запросов зависит от тарифа (механизм «ведра»): типично **2 запроса/с**, Enterprise **5 запросов/с**; при превышении — **HTTP 503** и код **QUERY_LIMIT_EXCEEDED**.
+
+Документация: [Limits | Bitrix24 REST API](https://apidocs.bitrix24.com/settings/performance/limits.html).
+
+**Настройка в проекте** (`config/config.yaml`, секция `bitrix24`):
+
+- `rest_sustained_rps` — целевая устойчивая скорость (запросов в секунду); клиент выдерживает интервал `1 / rest_sustained_rps` между исходящими REST-вызовами. Значение **0** отключает этот интервал (не рекомендуется).
+- `duplicate_check_max_parallel` — сколько лидов проверять на дубли параллельно; при **2 req/s** по умолчанию **1**, так как на один лид уходит несколько методов подряд.
+
+При нескольких интеграциях с одного IP к одному порталу лимит **общий** — снизьте `rest_sustained_rps` или параллелизм.
+
+---
+
 ### Ошибка "Duplicate not found"
 
 **Симптомы:**

@@ -4,6 +4,7 @@ Bitrix24 REST API клиент
 import asyncio
 import re
 import random
+import time
 from typing import Optional, Dict, Any, List, Tuple, Set
 from datetime import datetime
 from urllib.parse import urlparse
@@ -74,7 +75,8 @@ class Bitrix24Client:
         request_timeout: int = 30,
         retry_attempts: int = 3,
         retry_delay: float = 1.0,
-        proxy_url: Optional[str] = None
+        proxy_url: Optional[str] = None,
+        min_request_interval_sec: float = 0.0,
     ):
         """
         Инициализация клиента
@@ -85,6 +87,8 @@ class Bitrix24Client:
             retry_attempts: Количество попыток при ошибках
             retry_delay: Задержка между попытками в секундах
             proxy_url: URL прокси (опционально)
+            min_request_interval_sec: Минимальный интервал между исходящими REST-запросами
+                (см. лимиты облака Bitrix24: устойчивая скорость ~2 вызова/с, Enterprise ~5/с).
 
         Raises:
             ValueError: Если webhook_url некорректный
@@ -98,8 +102,23 @@ class Bitrix24Client:
         self.retry_attempts = retry_attempts
         self.retry_delay = retry_delay
         self.proxy_url = proxy_url
+        self._min_request_interval_sec = max(0.0, float(min_request_interval_sec))
+        self._request_slot_lock = asyncio.Lock()
+        self._next_request_monotonic = 0.0
 
         self._session: Optional[aiohttp.ClientSession] = None
+
+    async def _await_request_slot(self) -> None:
+        """Пауза согласно лимиту интенсивности REST (Leaky Bucket, облако Bitrix24)."""
+        if self._min_request_interval_sec <= 0:
+            return
+        async with self._request_slot_lock:
+            now = time.monotonic()
+            wait = self._next_request_monotonic - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+                now = time.monotonic()
+            self._next_request_monotonic = now + self._min_request_interval_sec
 
     def _validate_bitrix24_webhook(self, url: str) -> bool:
         """
@@ -194,6 +213,7 @@ class Bitrix24Client:
         
         for attempt in range(self.retry_attempts):
             try:
+                await self._await_request_slot()
                 session = await self._get_session()
                 
                 async with session.post(url, json=params, proxy=proxy) as response:
@@ -435,7 +455,14 @@ class Bitrix24Client:
 
             except Bitrix24Error as e:
                 # Проверяем, является ли ошибка "Too many requests"
-                if "Too many requests" in str(e) or "quota" in str(e).lower():
+                msg_l = str(e).lower()
+                is_rate_limit = (
+                    "too many requests" in msg_l
+                    or "quota" in msg_l
+                    or "query_limit_exceeded" in msg_l
+                    or (e.error_code == 503)
+                )
+                if is_rate_limit:
                     if attempt < max_retries - 1:
                         # Экспоненциальная задержка: 2s, 4s, 8s
                         delay = base_delay * (2 ** attempt)

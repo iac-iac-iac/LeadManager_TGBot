@@ -635,10 +635,11 @@ curl "https://your-portal.bitrix24.ru/rest/1/your-webhook/user.current.json"
 - Убедитесь, что вебхук имеет права `crm.*` и `user.*`
 - Пересоздайте вебхук при необходимости
 
-**Проверьте лимиты API:**
+**Лимиты REST (облако):**
 
-- Bitrix24 имеет лимиты на количество запросов
-- Проверьте логи на ошибки `429 Too Many Requests`
+- Официально: [Limits | Bitrix24 REST API](https://apidocs.bitrix24.com/settings/performance/limits.html) — устойчивая скорость типично **2 req/s** (Enterprise **5 req/s**); при превышении возможны **503** и **QUERY_LIMIT_EXCEEDED**.
+- В `config/config.yaml` задайте `bitrix24.rest_sustained_rps` (например `2.0` или `5.0` для Enterprise) и при необходимости `bitrix24.duplicate_check_max_parallel` (по умолчанию `1`).
+- Проверьте логи бота на сообщения об ошибках Bitrix24 после массовой проверки дублей или импорта.
 
 ---
 

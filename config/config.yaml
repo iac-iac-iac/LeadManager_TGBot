@@ -14,6 +14,12 @@ bitrix24:
   request_timeout: 60  # Увеличено с 30 до 60 сек для медленных запросов
   retry_attempts: 3
   retry_delay: 5
+  # Лимиты REST (облако): https://apidocs.bitrix24.com/settings/performance/limits.html
+  # Устойчивая интенсивность Y: типовые тарифы — 2 запроса/с; Enterprise — 5/с (укажите 5.0 при необходимости).
+  # 0 — отключить выдерживание интервала между запросами в клиенте (не рекомендуется).
+  rest_sustained_rps: 2.0
+  # Параллельная проверка лидов на дубли; один лид = несколько вызовов API — при 2 req/s оставьте 1.
+  duplicate_check_max_parallel: 1
   duplicate_check_fields:
     - phone
     - company_name

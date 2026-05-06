@@ -194,7 +194,8 @@ def register_handlers(dp: Dispatcher, db_manager: DatabaseManager, config: Confi
         request_timeout=config.bitrix24.request_timeout,
         retry_attempts=config.bitrix24.retry_attempts,
         retry_delay=config.bitrix24.retry_delay,
-        proxy_url=config.bitrix24.proxy_url
+        proxy_url=config.bitrix24.proxy_url,
+        min_request_interval_sec=config.bitrix24.min_request_interval_sec,
     )
 
     # Регистрируем роутеры
