@@ -277,8 +277,13 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
     # Получаем индекс сегмента
     segment_index = int(parsed["params"][0])
 
-    # Получаем доступные сегменты
-    segments = await crud.get_segments_with_cities(session, exclude_frozen=True)
+    # Список должен совпадать с тем, по которому строилась клавиатура (FSM), иначе
+    # повторный запрос к БД может вернуть тот же набор в другом порядке → другой сегмент по индексу.
+    state_data = await state.get_data()
+    segments = state_data.get("segments_list") or []
+    if not segments:
+        segments = await crud.get_segments_with_cities(session, exclude_frozen=True)
+        await state.update_data(segments_list=segments)
 
     if segment_index >= len(segments):
         await callback.answer("⚠️ Сегмент не найден", show_alert=True)
@@ -351,6 +356,7 @@ async def handle_back_to_segments(callback: CallbackQuery, state: FSMContext, se
 
     # Получаем доступные сегменты
     segments = await crud.get_segments_with_cities(session, exclude_frozen=True)
+    await state.update_data(segments_list=segments)
 
     keyboard = create_segments_keyboard(segments, prefix="select_segment")
 
@@ -382,8 +388,11 @@ async def handle_city_select(callback: CallbackQuery, state: FSMContext, session
     segment_index = int(parsed["params"][0])
     city_index = int(parsed["params"][1])
 
-    # Получаем доступные сегменты
-    segments = await crud.get_segments_with_cities(session, exclude_frozen=True)
+    state_data = await state.get_data()
+    segments = state_data.get("segments_list") or []
+    if not segments:
+        segments = await crud.get_segments_with_cities(session, exclude_frozen=True)
+        await state.update_data(segments_list=segments)
 
     if segment_index >= len(segments):
         await callback.answer("⚠️ Сегмент не найден", show_alert=True)

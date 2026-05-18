@@ -294,6 +294,15 @@ async def get_segments_with_cities(
             result_segments.append((f"📦 Прочее (Плюсовики)", []))
             logger.info(f"  Добавлено 'Прочее (Плюсовики)': {other_plusoviki_leads} лидов")
 
+    # Стабильный порядок: иначе порядок зависит от выдачи SQL/итерации dict и меняется
+    # между вызовами — индексы в callback_data перестают соответствовать кнопкам.
+    _pkg = "📦 "
+    main_rows = [x for x in result_segments if not x[0].startswith(_pkg)]
+    tail_rows = [x for x in result_segments if x[0].startswith(_pkg)]
+    main_rows.sort(key=lambda x: x[0].casefold())
+    tail_rows.sort(key=lambda x: x[0].casefold())
+    result_segments = main_rows + tail_rows
+
     logger.info(f"get_segments_with_cities: итого {len(result_segments)} сегментов")
     return result_segments
 
