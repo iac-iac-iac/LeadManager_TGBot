@@ -267,8 +267,9 @@ async def handle_bitrix_segment_select(callback: CallbackQuery, state: FSMContex
             # Проверяем доступное количество
             if is_other:
                 other_type = "regular" if is_other_regular else "plusoviki"
+                scope = crud.segment_filter_for_other_leads_pool(segment_name)
                 available_count = await crud.count_other_leads(
-                    session, other_type=other_type, segment=segment_name
+                    session, other_type=other_type, segment=scope
                 )
                 # Сохраняем тип "Прочее" для последующего получения лидов
                 await state.update_data(is_other=True, other_type=other_type)
@@ -430,8 +431,9 @@ async def handle_bitrix_count_input(message: Message, state: FSMContext, session
         other_type = state_data.get("other_type", "regular")
 
         if is_other:
+            scope = crud.segment_filter_for_other_leads_pool(segment)
             available_count = await crud.count_other_leads(
-                session, other_type=other_type, segment=segment
+                session, other_type=other_type, segment=scope
             )
         else:
             available_count = await crud.count_available_leads_for_assignment(
@@ -553,9 +555,9 @@ async def process_bitrix_load(target, state: FSMContext, session: AsyncSession, 
             return
 
         if is_other:
-            # НЕ передаём segment — это отображаемое название, а не реальный сегмент из БД.
+            scope = crud.segment_filter_for_other_leads_pool(segment)
             leads = await crud.get_other_leads_for_assignment(
-                session, other_type=other_type, limit=count
+                session, other_type=other_type, segment=scope, limit=count
             )
         else:
             leads = await crud.get_available_leads_for_assignment(

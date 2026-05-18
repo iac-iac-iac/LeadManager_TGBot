@@ -222,3 +222,11 @@ class TestSegmentLockCRUD:
         assert await crud.count_available_leads(session, "SegFreeze", city=None) == 1
         assert await crud.count_available_leads(session, "SegFreeze", city="C1") == 0
         assert await crud.count_available_leads(session, "SegFreeze", city="C2") == 1
+
+
+def test_segment_filter_for_other_leads_pool():
+    """Верхнеуровневое «Прочее» → без фильтра по segment; реальный сегмент → фильтр."""
+    assert crud.segment_filter_for_other_leads_pool("📦 Прочее (Обыч.)") is None
+    assert crud.segment_filter_for_other_leads_pool("📦 Прочее (Плюсовики)") is None
+    assert crud.segment_filter_for_other_leads_pool("Промышленный альпинизм") == "Промышленный альпинизм"
+    assert crud.segment_filter_for_other_leads_pool(None) is None

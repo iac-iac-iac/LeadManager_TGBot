@@ -308,8 +308,7 @@ async def handle_segment_select(callback: CallbackQuery, state: FSMContext, sess
 
         # Проверяем доступное количество
         if is_other:
-            # Для "Прочее" используем специальную функцию
-            # НЕ передаём segment так как это "📦 Прочее (Обыч.) — N лидов", а не реальный сегмент
+            # Верхнеуровневый пул «Прочее» (segment=None в CRUD)
             other_type = "regular" if is_other_regular else "plusoviki"
             available_count = await crud.count_other_leads(
                 session, other_type=other_type
@@ -502,9 +501,9 @@ async def handle_lead_count_input(message: Message, state: FSMContext, session: 
 
     # Проверяем доступное количество
     if is_other:
-        # Для "Прочее" НЕ передаём segment так как это отображаемое название, а не реальный сегмент
+        scope = crud.segment_filter_for_other_leads_pool(segment)
         available_count = await crud.count_other_leads(
-            session, other_type=other_type
+            session, other_type=other_type, segment=scope
         )
     else:
         available_count = await crud.count_available_leads(session, segment, city)
@@ -684,11 +683,11 @@ async def handle_leads_confirm(
     other_type = data.get("other_type", "regular")
 
     if is_other:
-        # НЕ передаём segment — это отображаемое название ("📦 Прочее (Обыч.) — N лидов"),
-        # а не реальный сегмент из БД. get_other_leads_for_assignment сам определит цели.
+        scope = crud.segment_filter_for_other_leads_pool(segment)
         leads = await crud.get_other_leads_for_assignment(
             session,
             other_type=other_type,
+            segment=scope,
             limit=count,
         )
     else:

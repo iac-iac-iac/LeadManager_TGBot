@@ -237,6 +237,25 @@ async def get_random_leads_by_utc_band(
     return list(result.scalars().all())
 
 
+def segment_filter_for_other_leads_pool(selected_segment: Optional[str]) -> Optional[str]:
+    """
+    Аргумент ``segment`` для ``count_other_leads`` / ``get_other_leads_for_assignment``.
+
+    ``None`` — полный пул «Прочее» по всем сегментам (в UI выбрана строка-сегмент ``📦 Прочее …``).
+
+    Иначе — только лиды с ``Lead.segment == selected_segment`` (в том числе псевдо-город
+    «📦 Прочие …» внутри одного реального сегмента).
+    """
+    if not selected_segment:
+        return None
+    if selected_segment.startswith("📦 ") and (
+        "Прочее (Обыч.)" in selected_segment
+        or "Прочее (Плюсовики)" in selected_segment
+    ):
+        return None
+    return selected_segment
+
+
 async def count_other_leads(
     session: AsyncSession,
     other_type: str,
